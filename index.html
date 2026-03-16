@@ -1,0 +1,2082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MakeCode Video Converter</title>
+<style>
+:root {
+    --bg:            #1e1e1e;
+    --bg-deep:       #141414;
+    --bg-panel:      #252526;
+    --bg-input:      #3c3c3c;
+    --bg-hover:      #2a2d2e;
+    --border:        #454545;
+    --purple:        #9b59b6;
+    --purple-dim:    #6c3483;
+    --purple-bright: #c39bd3;
+    --purple-glow:   rgba(155,89,182,0.25);
+    --purple-subtle: rgba(155,89,182,0.08);
+    --text:          #d4d4d4;
+    --text-muted:    #6a737d;
+    --text-dim:      #858585;
+    --text-bright:   #e8e8e8;
+    --green:         #4ec9b0;
+    --green-dim:     #2d7a67;
+    --yellow:        #dcdcaa;
+    --red:           #f44747;
+    --orange:        #ce9178;
+    --scrollbar:     #424242;
+    --divider:       #5a5a5a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; overflow:hidden; }
+body {
+    font-family: 'Lucida Console','Courier New',monospace;
+    background: var(--bg-deep);
+    color: var(--text);
+    font-size:13px; line-height:1.5;
+    display:flex; flex-direction:column;
+}
+
+/* ══ APP SHELL ══ */
+.app-shell { display:flex; flex-direction:column; flex:1; min-height:0; }
+
+/* ══ HORIZONTAL SPLIT (left | divider | right) ══ */
+.h-split { display:flex; flex:1; min-height:0; overflow:hidden; }
+
+.pane-left {
+    width: 400px; min-width:200px; max-width:70%;
+    background:var(--bg); border-right:2px solid var(--border);
+    overflow-y:auto; padding:14px 16px 20px; flex-shrink:0;
+}
+.pane-left::-webkit-scrollbar { width:5px; }
+.pane-left::-webkit-scrollbar-thumb { background:var(--scrollbar); }
+
+/* drag handle between left/right */
+.hdiv {
+    width:5px; background:var(--border); cursor:col-resize; flex-shrink:0;
+    transition:background 0.15s;
+}
+.hdiv:hover, .hdiv.dragging { background:var(--purple); }
+
+.pane-right {
+    flex:1; min-width:200px; display:flex; flex-direction:column; overflow:hidden;
+    background:var(--bg-deep);
+}
+
+/* ══ VERTICAL SPLIT inside right pane (viewer | divider | output) ══ */
+.v-split-right {
+    display:flex; flex-direction:column; flex:1; min-height:0;
+}
+
+/* viewer area: viewer-main + strip-wrap, together resizable */
+.viewer-block {
+    display:flex; flex-direction:column;
+    min-height:80px;
+    height: 60%; /* default */
+    flex-shrink:0;
+}
+
+.vdiv {
+    height:5px; background:var(--border); cursor:row-resize; flex-shrink:0;
+    transition:background 0.15s;
+}
+.vdiv:hover, .vdiv.dragging { background:var(--purple); }
+
+/* output section fills remaining space */
+.output-block {
+    flex:1; min-height:60px; display:flex; flex-direction:column;
+    background:var(--bg); overflow:hidden;
+}
+
+/* ══ BOTTOM STRIP: log + status, resizable height ══ */
+.bottom-outer {
+    display:flex; flex-direction:column; flex-shrink:0;
+}
+.bdiv {
+    height:5px; background:var(--border); cursor:row-resize; flex-shrink:0;
+    transition:background 0.15s;
+}
+.bdiv:hover, .bdiv.dragging { background:var(--purple); }
+.bottom-strip {
+    background:var(--bg-panel); border-top:2px solid var(--border);
+    padding:6px 12px 8px;
+    height: 130px; min-height:50px; max-height:50vh;
+    overflow:hidden; display:flex; flex-direction:column;
+}
+
+/* ══ SECTION HEADERS ══ */
+.sh {
+    display:flex; align-items:center; gap:7px;
+    margin:14px 0 6px;
+    color:var(--purple-bright); font-size:10px;
+    text-transform:uppercase; letter-spacing:1px;
+}
+.sh:first-child { margin-top:0; }
+.sh::before { content:'//'; color:var(--text-muted); }
+.sh::after  { content:''; flex:1; height:1px; background:var(--border); }
+
+/* ══ UPLOAD ══ */
+.upload-zone {
+    border:2px solid var(--border); padding:14px 10px;
+    text-align:center; cursor:pointer; background:var(--bg-panel);
+    transition:border-color 0.2s, background 0.2s;
+}
+.upload-zone:hover,.upload-zone.dragover { border-color:var(--purple); background:var(--purple-subtle); }
+.upload-icon  { font-size:22px; margin-bottom:4px; display:block; opacity:0.8; }
+.upload-text  { font-size:10px; color:var(--purple-bright); font-weight:bold; margin-bottom:2px; }
+.upload-hint  { font-size:9px; color:var(--text-muted); }
+#videoInput   { display:none; }
+.preview-container {
+    background:#000; border:2px solid var(--border); margin-top:6px;
+    aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; overflow:hidden;
+}
+#videoPreview { max-width:100%; max-height:100%; display:none; }
+.preview-placeholder { font-size:10px; color:var(--text-muted); }
+
+/* ══ FORM CONTROLS ══ */
+.cg2 { display:grid; grid-template-columns:1fr 1fr;     gap:6px; margin-top:6px; }
+.cg3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:6px; }
+.cg  { display:flex; flex-direction:column; gap:2px; }
+label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.8px; }
+input[type="number"], input[type="text"], select {
+    background:var(--bg-input); border:1px solid var(--border);
+    border-left:3px solid var(--purple-dim);
+    padding:4px 6px; color:var(--text-bright);
+    font-family:'Lucida Console',monospace; font-size:11px;
+    width:100%; outline:none; transition:border-color 0.15s;
+}
+input:focus, select:focus { border-color:var(--purple); border-left-color:var(--purple); }
+input::placeholder { color:var(--text-muted); }
+select option { background:var(--bg-input); }
+
+/* ══ RADIO ══ */
+.rg { display:flex; flex-direction:column; gap:2px; margin:4px 0; }
+.rr {
+    display:flex; align-items:center; gap:6px; padding:3px 5px;
+    cursor:pointer; border:1px solid transparent; transition:background 0.1s;
+}
+.rr:hover { background:var(--bg-hover); border-color:var(--border); }
+.rr input[type="radio"] {
+    appearance:none; width:11px; height:11px;
+    border:2px solid var(--border); border-radius:50%; cursor:pointer;
+    position:relative; flex-shrink:0;
+}
+.rr input:checked { border-color:var(--purple); }
+.rr input:checked::after {
+    content:''; position:absolute; top:2px; left:2px;
+    width:3px; height:3px; background:var(--purple); border-radius:50%;
+}
+.rr label { text-transform:none; letter-spacing:0; font-size:10px; color:var(--text); cursor:pointer; font-weight:normal; }
+.rr:has(input:checked) { background:var(--purple-subtle); border-color:var(--purple-dim); }
+.rr:has(input:checked) label { color:var(--text-bright); }
+
+/* ══ EXTRA / INFO ══ */
+.extra { margin-top:3px; padding:6px; background:var(--bg-panel); border:1px solid var(--border); border-left:3px solid var(--purple); }
+.extra.hidden { display:none; }
+.dim-display { font-size:10px; color:var(--yellow); padding:3px 6px; background:var(--bg-panel); border-left:3px solid var(--yellow); margin-top:4px; }
+.info-box { background:var(--bg-panel); border:1px solid var(--border); border-left:3px solid var(--purple-dim); padding:6px 8px; margin-top:5px; font-size:9px; color:var(--text-dim); line-height:1.6; }
+.info-box.active { border-left-color:var(--purple); color:var(--purple-bright); background:var(--purple-subtle); }
+
+/* ══ PALETTE EDITOR ══ */
+.palette-grid {
+    display:grid; grid-template-columns:repeat(8,1fr);
+    gap:3px; margin-top:6px;
+}
+.pal-swatch {
+    aspect-ratio:1; border:1px solid var(--border);
+    position:relative; cursor:pointer; transition:border-color 0.12s, transform 0.1s; overflow:hidden;
+}
+.pal-swatch:hover { border-color:var(--purple-bright); transform:scale(1.1); z-index:1; }
+.pal-swatch::after {
+    content:attr(data-idx); position:absolute; bottom:1px; right:2px;
+    font-size:6px; font-weight:bold; color:#fff; text-shadow:1px 1px 0 #000; pointer-events:none;
+}
+.pal-swatch input[type="color"] {
+    opacity:0; position:absolute; inset:0; width:100%; height:100%;
+    cursor:pointer; border:none; padding:0;
+}
+.palette-actions { display:flex; gap:4px; margin-top:4px; flex-wrap:wrap; }
+
+/* ══ BUTTONS ══ */
+.btn {
+    font-family:'Lucida Console',monospace; font-size:9px; font-weight:bold;
+    padding:5px 11px; border:none; cursor:pointer;
+    transition:all 0.12s; text-transform:uppercase; letter-spacing:0.4px; outline:none;
+}
+.btn-primary  { background:var(--purple); color:#fff; border:2px solid var(--purple); }
+.btn-primary:hover:not(:disabled) { background:var(--purple-bright); border-color:var(--purple-bright); color:#000; }
+.btn-primary:disabled { background:var(--bg-input); border-color:var(--border); color:var(--text-muted); cursor:not-allowed; }
+.btn-secondary { background:transparent; color:var(--text); border:2px solid var(--border); }
+.btn-secondary:hover:not(:disabled) { border-color:var(--purple-dim); color:var(--purple-bright); background:var(--purple-subtle); }
+.btn-secondary:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-play { background:var(--green-dim); color:#fff; border:2px solid var(--green-dim); }
+.btn-play:hover:not(:disabled) { background:var(--green); border-color:var(--green); color:#000; }
+.btn-play:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-copy  { background:transparent; color:var(--green); border:2px solid var(--green-dim); }
+.btn-copy:hover:not(:disabled) { background:rgba(78,201,176,0.1); border-color:var(--green); }
+.btn-copy:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-orange { background:transparent; color:var(--orange); border:2px solid #7a5040; }
+.btn-orange:hover:not(:disabled) { background:rgba(206,145,120,0.1); border-color:var(--orange); }
+.btn-orange:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-sm { padding:3px 8px; font-size:9px; }
+.btn-row { display:flex; gap:5px; margin-top:8px; flex-wrap:wrap; }
+
+/* ══ ESTIMATE ══ */
+.est-panel { background:var(--bg-panel); border:2px solid var(--border); border-left:4px solid var(--purple-dim); padding:8px; margin-top:8px; }
+.est-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.est-title  { font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--text-dim); }
+.est-grid   { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; }
+.est-cell   { display:flex; flex-direction:column; gap:1px; }
+.est-lbl    { font-size:7px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+.est-val    { font-size:11px; color:var(--purple-bright); font-weight:bold; }
+.est-note   { margin-top:6px; font-size:9px; color:var(--text-dim); padding-top:5px; border-top:1px solid var(--border); }
+
+/* ══ VIEWER ══ */
+.viewer-main {
+    flex:1; display:flex; align-items:center; justify-content:center;
+    background:#0a0a0a; padding:8px; min-height:0; position:relative;
+    overflow:hidden;
+}
+#mainFrameCanvas {
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    border:2px solid var(--border); display:block;
+    /* CSS max constraints so canvas never overflows the container */
+    max-width:calc(100% - 4px);
+    max-height:calc(100% - 4px);
+}
+.viewer-ph { font-size:10px; color:var(--text-muted); text-align:center; }
+
+/* ══ STRIP ══ */
+.strip-wrap {
+    background:var(--bg-panel); border-top:2px solid var(--border);
+    padding:4px 8px; flex-shrink:0;
+    overflow:hidden;
+}
+.frame-strip { display:flex; gap:3px; align-items:flex-end; justify-content:center; overflow-x:auto; }
+.frame-strip::-webkit-scrollbar { height:3px; }
+.frame-strip::-webkit-scrollbar-thumb { background:var(--scrollbar); }
+.s-thumb { display:flex; flex-direction:column; align-items:center; gap:1px; cursor:pointer; flex-shrink:0; }
+.s-thumb canvas {
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    border:2px solid var(--border); transition:border-color 0.12s; display:block;
+}
+.s-thumb:hover canvas { border-color:var(--purple-bright); }
+.s-thumb.current canvas { border-color:var(--purple); box-shadow:0 0 0 1px var(--purple); }
+.s-lbl { font-size:7px; color:var(--text-muted); text-align:center; }
+.s-thumb.current .s-lbl { color:var(--purple-bright); }
+
+/* ══ NAV BAR ══ */
+.nav-bar {
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+    background:var(--bg-panel); border-top:2px solid var(--border);
+    padding:4px 8px; flex-shrink:0;
+}
+.nav-bar .fc { font-size:9px; color:var(--text-dim); white-space:nowrap; }
+.nav-jump { display:flex; align-items:center; gap:3px; }
+.nav-jump input { width:48px; border-left-width:2px; padding:2px 4px; font-size:10px; }
+.sp { flex:1; }
+.imp-lbl { font-size:8px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
+/* playback speed display */
+.play-ms { font-size:9px; color:var(--text-muted); white-space:nowrap; }
+
+/* loop checkbox */
+.loop-row { display:flex; align-items:center; gap:4px; }
+.loop-row input[type="checkbox"] {
+    appearance:none; width:12px; height:12px; background:var(--bg-input);
+    border:2px solid var(--border); cursor:pointer; position:relative; flex-shrink:0;
+    transition:background 0.15s;
+}
+.loop-row input:checked { background:var(--purple); border-color:var(--purple); }
+.loop-row input:checked::after {
+    content:'✓'; position:absolute; top:-1px; left:1px; font-size:9px; color:#fff; font-weight:bold;
+}
+.loop-row label { font-size:9px; color:var(--text-dim); text-transform:none; letter-spacing:0; cursor:pointer; }
+
+/* volume slider */
+.vol-row { display:flex; align-items:center; gap:4px; }
+input[type="range"]#volSlider {
+    -webkit-appearance:none; appearance:none;
+    width:72px; height:4px;
+    background: linear-gradient(to right, var(--purple) 0%, var(--purple) 80%, var(--bg-input) 80%);
+    border:none; border-left:none; border-radius:2px; outline:none; cursor:pointer; padding:0;
+}
+input[type="range"]#volSlider::-webkit-slider-thumb {
+    -webkit-appearance:none; appearance:none;
+    width:12px; height:12px; border-radius:50%;
+    background:var(--purple-bright); border:2px solid var(--bg-deep); cursor:pointer;
+}
+input[type="range"]#volSlider::-moz-range-thumb {
+    width:12px; height:12px; border-radius:50%;
+    background:var(--purple-bright); border:2px solid var(--bg-deep); cursor:pointer;
+}
+
+/* ══ OUTPUT ══ */
+.output-section {
+    padding:7px 10px 10px; background:var(--bg); flex:1; display:flex; flex-direction:column; overflow:hidden;
+}
+.out-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-shrink:0; }
+.out-stats  { font-size:9px; color:var(--text-muted); }
+.output-code {
+    background:var(--bg-deep); border:1px solid var(--border);
+    padding:7px 9px; flex:1; overflow:auto;
+    font-family:'Lucida Console',monospace; font-size:9px; line-height:1.5;
+    color:var(--green); white-space:pre-wrap; word-break:break-all;
+}
+.output-code::-webkit-scrollbar { width:4px; }
+.output-code::-webkit-scrollbar-thumb { background:var(--scrollbar); }
+
+/* ══ BOTTOM STRIP ══ */
+.progress-bar { height:3px; background:var(--bg-input); border:1px solid var(--border); overflow:hidden; margin-bottom:4px; flex-shrink:0; }
+.progress-fill { height:100%; background:var(--purple); width:0%; transition:width 0.25s; box-shadow:0 0 6px var(--purple-glow); }
+.progress-fill.error { background:var(--red); box-shadow:none; }
+.bot-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex-shrink:0; }
+.ph-lbl { font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; }
+.pg-txt { font-size:9px; color:var(--text-dim); }
+.status-msg { font-size:9px; padding:2px 8px; display:none; border-left:2px solid transparent; }
+.status-msg.success { display:inline-block; border-left-color:var(--green); color:var(--green); }
+.status-msg.error   { display:inline-block; border-left-color:var(--red);   color:var(--red); }
+.status-msg.info    { display:inline-block; border-left-color:var(--purple); color:var(--purple-bright); }
+.log-box {
+    background:var(--bg-deep); border:1px solid var(--border);
+    padding:4px 8px; flex:1; overflow-y:auto;
+    font-size:9px; line-height:1.7; white-space:pre-wrap; margin-top:4px;
+}
+.log-box::-webkit-scrollbar { width:3px; }
+.log-box::-webkit-scrollbar-thumb { background:var(--scrollbar); }
+.log-ok    { color:var(--green); }
+.log-error { color:var(--red); }
+.log-warn  { color:var(--yellow); }
+.log-info  { color:var(--purple-bright); }
+.log-dim   { color:var(--text-muted); }
+
+canvas#processingCanvas { display:none; }
+
+/* ══ TABS ══ */
+.tab-bar {
+    display:flex; gap:0; border-bottom:2px solid var(--border);
+    background:var(--bg-deep); flex-shrink:0;
+}
+.tab-btn {
+    font-family:'Lucida Console',monospace; font-size:10px; font-weight:bold;
+    padding:7px 16px; border:none; background:transparent;
+    color:var(--text-muted); cursor:pointer; letter-spacing:0.6px;
+    text-transform:uppercase; border-bottom:2px solid transparent;
+    margin-bottom:-2px; transition:color 0.15s, border-color 0.15s;
+    outline:none;
+}
+.tab-btn:hover { color:var(--text); background:var(--bg-hover); }
+.tab-btn.active { color:var(--purple-bright); border-bottom-color:var(--purple); background:var(--bg); }
+
+.tab-panel { display:none; flex:1; overflow-y:auto; padding:14px 16px 20px; }
+.tab-panel.active { display:block; }
+.tab-panel::-webkit-scrollbar { width:5px; }
+.tab-panel::-webkit-scrollbar-thumb { background:var(--scrollbar); }
+
+/* ══ IMAGE TAB ══ */
+.img-upload-zone {
+    border:2px solid var(--border); padding:14px 10px;
+    text-align:center; cursor:pointer; background:var(--bg-panel);
+    transition:border-color 0.2s, background 0.2s;
+}
+.img-upload-zone:hover, .img-upload-zone.dragover { border-color:var(--purple); background:var(--purple-subtle); }
+.img-preview-container {
+    background:#000; border:2px solid var(--border); margin-top:6px;
+    height:120px; display:flex; align-items:center; justify-content:center; overflow:hidden;
+}
+#imgPreview { max-width:100%; max-height:100%; display:none; image-rendering:pixelated; }
+.img-preview-ph { font-size:10px; color:var(--text-muted); }
+
+/* palette swatch strip */
+.swatch-strip { display:flex; gap:2px; margin-top:4px; height:18px; }
+.swatch-cell { flex:1; border:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="app-shell">
+<div class="h-split">
+
+  <!-- ══ LEFT PANE ══ -->
+  <div class="pane-left" id="paneLeft" style="padding:0; display:flex; flex-direction:column;">
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabBtnVideo" onclick="switchTab('video')">▶ Video</button>
+      <button class="tab-btn" id="tabBtnImage" onclick="switchTab('image')">🖼 Image</button>
+    </div>
+
+    <!-- ══ VIDEO TAB ══ -->
+    <div class="tab-panel active" id="tabVideo">
+
+    <div class="sh">Video Input</div>
+    <div class="upload-zone" id="uploadZone">
+      <span class="upload-icon">🎬</span>
+      <p class="upload-text">Drop Video File Here</p>
+      <p class="upload-hint">MP4 · WebM · MOV · AVI · MKV</p>
+    </div>
+    <input type="file" id="videoInput" accept="video/*">
+    <div class="preview-container">
+      <video id="videoPreview" controls></video>
+      <div class="preview-placeholder" id="previewPlaceholder">// no video loaded</div>
+    </div>
+
+    <div class="sh">Frame Range</div>
+    <div class="cg3">
+      <div class="cg"><label>Start Frame</label><input type="number" id="startFrame" value="0" min="0"></div>
+      <div class="cg"><label>End Frame</label><input type="number" id="endFrame" placeholder="all" min="1"></div>
+      <div class="cg"><label>Interval</label><input type="number" id="frameInterval" value="1" min="1"></div>
+    </div>
+
+    <div class="sh">Resize Mode</div>
+    <div class="rg">
+      <label class="rr"><input type="radio" name="resizeMode" value="full-width" checked><label>Full width — 160px wide, height auto</label></label>
+      <label class="rr"><input type="radio" name="resizeMode" value="full-height"><label>Full height — 120px tall, width auto</label></label>
+      <label class="rr"><input type="radio" name="resizeMode" value="full-screen"><label>Full screen — 160×120 stretched</label></label>
+      <label class="rr"><input type="radio" name="resizeMode" value="scale"><label>Scale factor</label></label>
+      <label class="rr"><input type="radio" name="resizeMode" value="custom"><label>Custom dimensions</label></label>
+    </div>
+    <div class="extra hidden" id="scaleExtra">
+      <div class="cg"><label>Scale Factor</label><input type="number" id="scaleFactor" value="0.5" min="0.01" max="4" step="0.01"></div>
+    </div>
+    <div class="extra hidden" id="customExtra">
+      <div class="cg2">
+        <div class="cg"><label>Width (px)</label><input type="number" id="customWidth" value="160" min="1"></div>
+        <div class="cg"><label>Height (px)</label><input type="number" id="customHeight" value="120" min="1"></div>
+      </div>
+    </div>
+    <div class="dim-display" id="dimDisplay">→ 160 px wide (height auto)</div>
+
+    <div class="sh">Palette Mode</div>
+    <div class="rg">
+      <label class="rr"><input type="radio" name="paletteMode" value="fixed" checked><label>Fixed — use global palette below</label></label>
+      <label class="rr"><input type="radio" name="paletteMode" value="adaptive"><label>Adaptive — per-frame palette (accurate)</label></label>
+    </div>
+    <div class="info-box" id="paletteNote">Pixels snapped to the palette below. Click any swatch to customise.</div>
+
+    <div class="sh">Global Palette <span style="color:var(--text-muted);font-size:8px;text-transform:none;letter-spacing:0;margin-left:4px;">(click swatch · 0 = transparent)</span></div>
+    <div class="palette-grid" id="paletteGrid"></div>
+    <div class="palette-actions">
+      <button class="btn btn-secondary btn-sm" id="resetPaletteBtn">↺ Reset</button>
+      <button class="btn btn-secondary btn-sm" id="importPaletteBtn">📂 Import Palette</button>
+      <input type="file" id="paletteFileInput" accept=".txt,.hex,.ts,.js" style="display:none">
+    </div>
+
+    <div class="est-panel">
+      <div class="est-header">
+        <span class="est-title">// Size Estimate</span>
+        <button class="btn btn-orange btn-sm" id="estBtn" disabled>⊞ Calculate</button>
+      </div>
+      <div class="est-grid">
+        <div class="est-cell"><span class="est-lbl">Frames</span><span class="est-val" id="estFrames">—</span></div>
+        <div class="est-cell"><span class="est-lbl">Sprite Size</span><span class="est-val" id="estDims">—</span></div>
+        <div class="est-cell"><span class="est-lbl">FPS</span><span class="est-val" id="estFps">—</span></div>
+        <div class="est-cell"><span class="est-lbl">Output Size</span><span class="est-val" id="estOutputSize">—</span></div>
+        <div class="est-cell"><span class="est-lbl">Duration</span><span class="est-val" id="estDuration">—</span></div>
+      </div>
+      <div class="est-note" id="estNote"></div>
+    </div>
+
+    <div class="btn-row">
+      <div class="loop-row" style="align-self:center;">
+        <input type="checkbox" id="extractAudioCheck" checked>
+        <label for="extractAudioCheck" style="color:var(--text);">Extract audio</label>
+      </div>
+      <button class="btn btn-primary" id="convertBtn" disabled style="flex:1;">▶ Extract + Convert</button>
+    </div>
+
+    </div><!-- /tabVideo -->
+
+    <!-- ══ IMAGE TAB ══ -->
+    <div class="tab-panel" id="tabImage">
+
+      <div class="sh">Image Input</div>
+      <div class="img-upload-zone" id="imgUploadZone">
+        <span class="upload-icon">🖼</span>
+        <p class="upload-text">Drop Image File Here</p>
+        <p class="upload-hint">PNG · JPG · BMP · GIF · WebP</p>
+      </div>
+      <input type="file" id="imgFileInput" accept="image/*" style="display:none;">
+      <div class="img-preview-container">
+        <img id="imgPreview" alt="">
+        <div class="img-preview-ph" id="imgPreviewPh">// no image loaded</div>
+      </div>
+      <div class="dim-display" id="imgDimDisplay" style="margin-top:4px;">→ no image loaded</div>
+
+      <div class="sh">Resize Mode</div>
+      <div class="rg">
+        <label class="rr"><input type="radio" name="imgResizeMode" value="none" checked><label>None — keep original size</label></label>
+        <label class="rr"><input type="radio" name="imgResizeMode" value="fit-width"><label>Fit width — 160px wide, height auto</label></label>
+        <label class="rr"><input type="radio" name="imgResizeMode" value="fit-height"><label>Fit height — 120px tall, width auto</label></label>
+        <label class="rr"><input type="radio" name="imgResizeMode" value="stretch"><label>Stretch — 160×120px</label></label>
+        <label class="rr"><input type="radio" name="imgResizeMode" value="custom"><label>Custom dimensions</label></label>
+      </div>
+      <div class="extra hidden" id="imgCustomExtra">
+        <div class="cg2">
+          <div class="cg"><label>Width (px)</label><input type="number" id="imgCustomW" value="160" min="1"></div>
+          <div class="cg"><label>Height (px)</label><input type="number" id="imgCustomH" value="120" min="1"></div>
+        </div>
+      </div>
+
+      <div class="sh">Palette Mode</div>
+      <div class="rg">
+        <label class="rr"><input type="radio" name="imgPaletteMode" value="adaptive" checked><label>Adaptive — quantise to best N colours</label></label>
+        <label class="rr"><input type="radio" name="imgPaletteMode" value="fixed"><label>Fixed — MakeCode built-in 15 colours</label></label>
+      </div>
+      <div class="extra" id="imgAdaptiveExtra" style="margin-top:4px;">
+        <div class="cg"><label>Max colours (1–15)</label><input type="number" id="imgMaxColors" value="15" min="1" max="15"></div>
+      </div>
+
+      <div class="sh">Options</div>
+      <div class="loop-row" style="margin-top:4px;padding:3px 5px;">
+        <input type="checkbox" id="imgIncludeSnippet" checked>
+        <label for="imgIncludeSnippet" style="color:var(--text);font-size:10px;text-transform:none;letter-spacing:0;cursor:pointer;">Include color.setColor() snippet</label>
+      </div>
+
+      <div class="sh">Palette Preview</div>
+      <div class="swatch-strip" id="imgSwatchStrip"></div>
+      <div style="font-size:9px;color:var(--text-muted);margin-top:3px;" id="imgSwatchNote">// convert an image to see its palette</div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="imgConvertBtn" disabled style="flex:1;">▶ Convert Image</button>
+      </div>
+
+      <div class="sh" style="margin-top:10px;">TypeScript Output</div>
+      <div class="out-header">
+        <label style="color:var(--yellow);">image_output.ts</label>
+        <span class="out-stats" id="imgOutputStats"></span>
+      </div>
+      <div class="output-code" id="imgOutputCode" style="height:160px;flex:none;">// Output will appear here after conversion</div>
+      <div class="btn-row" style="flex-shrink:0;">
+        <button class="btn btn-copy" id="imgCopyBtn" disabled>📋 Copy</button>
+        <button class="btn btn-secondary" id="imgDownloadBtn" disabled>💾 Download .ts</button>
+      </div>
+
+    </div><!-- /tabImage -->
+
+  </div><!-- /pane-left -->
+
+  <!-- horizontal drag divider -->
+  <div class="hdiv" id="hDiv"></div>
+
+  <!-- ══ RIGHT PANE ══ -->
+  <div class="pane-right">
+    <div class="v-split-right">
+
+      <!-- viewer block (main canvas + strip), resizable height -->
+      <div class="viewer-block" id="viewerBlock">
+
+        <!-- top import nav -->
+        <div class="nav-bar">
+          <span class="imp-lbl">Import:</span>
+          <button class="btn btn-secondary btn-sm" id="importOutputBtn">📂 Load .ts / .txt</button>
+          <input type="file" id="outputFileInput" accept=".ts,.js,.txt" style="display:none">
+          <div class="sp"></div>
+          <span class="fc" id="frameCounter">// no frames</span>
+        </div>
+
+        <!-- main rendered frame -->
+        <div class="viewer-main" id="viewerMain">
+          <div class="viewer-ph" id="viewerPh">// convert a video or import an output file<br>to preview frames here</div>
+          <canvas id="mainFrameCanvas" style="display:none;"></canvas>
+        </div>
+
+        <!-- strip ±5 frames -->
+        <div class="strip-wrap" id="stripWrap">
+          <div class="frame-strip" id="frameStrip">
+            <span style="font-size:9px;color:var(--text-muted);">// frame strip appears after loading</span>
+          </div>
+        </div>
+
+        <!-- nav bar: playback + prev/next/jump -->
+        <div class="nav-bar">
+          <button class="btn btn-play btn-sm" id="playBtn" disabled>▶ Play</button>
+          <div class="loop-row">
+            <input type="checkbox" id="loopCheck" checked>
+            <label for="loopCheck">Loop</label>
+          </div>
+          <div class="vol-row">
+            <label for="volSlider" style="text-transform:none;letter-spacing:0;font-size:9px;color:var(--text-dim);">🔊</label>
+            <input type="range" id="volSlider" min="0" max="1" step="0.01" value="0.8">
+          </div>
+          <span class="play-ms" id="playMsLabel">// — ms/frame</span>
+          <div class="sp"></div>
+          <button class="btn btn-secondary btn-sm" id="prevBtn" disabled>◀</button>
+          <button class="btn btn-secondary btn-sm" id="nextBtn" disabled>▶</button>
+          <div class="nav-jump">
+            <label style="text-transform:none;letter-spacing:0;font-size:9px;color:var(--text-dim);">Frame:</label>
+            <input type="number" id="jumpInput" placeholder="0" min="0" disabled>
+            <button class="btn btn-secondary btn-sm" id="jumpBtn" disabled>Go</button>
+          </div>
+        </div>
+
+      </div><!-- /viewer-block -->
+
+      <!-- vertical drag divider between viewer and output -->
+      <div class="vdiv" id="vDiv"></div>
+
+      <!-- output block -->
+      <div class="output-block">
+        <div class="output-section">
+          <div class="sh" style="margin-top:0;">TypeScript Output</div>
+          <div class="out-header">
+            <label style="color:var(--yellow);">output.ts</label>
+            <span class="out-stats" id="outputStats"></span>
+          </div>
+          <div class="output-code" id="outputCode">// Output will appear here after conversion</div>
+          <div class="btn-row" style="flex-shrink:0;">
+            <button class="btn btn-copy" id="copyBtn" disabled>📋 Copy</button>
+            <button class="btn btn-secondary" id="downloadBtn" disabled>💾 Download .ts</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /v-split-right -->
+  </div><!-- /pane-right -->
+
+</div><!-- /h-split -->
+
+<!-- ══ BOTTOM: log/status, resizable ══ -->
+<div class="bottom-outer">
+  <div class="bdiv" id="bDiv"></div>
+  <div class="bottom-strip" id="bottomStrip">
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="bot-row">
+      <span class="ph-lbl" id="phaseLabel">Ready</span>
+      <span class="pg-txt" id="progressText"></span>
+      <span class="status-msg" id="statusMessage"></span>
+    </div>
+    <div class="log-box" id="logBox"><span class="log-dim">// waiting…</span></div>
+  </div>
+</div>
+
+</div><!-- /app-shell -->
+<canvas id="processingCanvas"></canvas>
+
+<script>
+'use strict';
+// ════════════════════════════════════════════════════
+//  CONSTANTS
+// ════════════════════════════════════════════════════
+const MAKECODE_WIDTH  = 160;
+const MAKECODE_HEIGHT = 120;
+const ASSUMED_FPS     = 30;
+
+const DEFAULT_PALETTE = [
+    null,
+    [255,255,255],[255,33,33],[255,147,196],[255,129,53],[255,246,9],
+    [36,156,163],[120,220,82],[0,38,101],[0,113,188],[49,30,107],
+    [112,50,160],[187,115,80],[100,65,23],[145,70,61],[0,0,0],
+];
+
+let userPalette = DEFAULT_PALETTE.map(c=>c?[...c]:null);
+
+// ════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════
+let loadedVideoFile = null;
+let isRunning       = false;
+let generatedOutput = '';
+
+// viewer
+let viewerFrames  = [];
+let viewerIndex   = 0;
+let playbackMs    = 33;   // ms between frames, from game.onUpdateInterval
+let isPlaying     = false;
+let playTimer     = null;
+
+// ════════════════════════════════════════════════════
+//  DOM REFS
+// ════════════════════════════════════════════════════
+const uploadZone       = document.getElementById('uploadZone');
+const videoInput       = document.getElementById('videoInput');
+const videoPreview     = document.getElementById('videoPreview');
+const previewPh        = document.getElementById('previewPlaceholder');
+const scaleExtra       = document.getElementById('scaleExtra');
+const customExtra      = document.getElementById('customExtra');
+const scaleFactorEl    = document.getElementById('scaleFactor');
+const customWidthEl    = document.getElementById('customWidth');
+const customHeightEl   = document.getElementById('customHeight');
+const dimDisplay       = document.getElementById('dimDisplay');
+const paletteNote      = document.getElementById('paletteNote');
+const paletteGridEl    = document.getElementById('paletteGrid');
+const resetPaletteBtn  = document.getElementById('resetPaletteBtn');
+const importPaletteBtn = document.getElementById('importPaletteBtn');
+const paletteFileInput = document.getElementById('paletteFileInput');
+const estBtn           = document.getElementById('estBtn');
+const estFrames        = document.getElementById('estFrames');
+const estDims          = document.getElementById('estDims');
+const estFps           = document.getElementById('estFps');
+const estOutputSize    = document.getElementById('estOutputSize');
+const estDuration      = document.getElementById('estDuration');
+const estNote          = document.getElementById('estNote');
+const convertBtn       = document.getElementById('convertBtn');
+const importOutputBtn  = document.getElementById('importOutputBtn');
+const outputFileInput  = document.getElementById('outputFileInput');
+const viewerPh         = document.getElementById('viewerPh');
+const mainFrameCanvas  = document.getElementById('mainFrameCanvas');
+const frameStrip       = document.getElementById('frameStrip');
+const playBtn          = document.getElementById('playBtn');
+const loopCheck        = document.getElementById('loopCheck');
+const playMsLabel      = document.getElementById('playMsLabel');
+const prevBtn          = document.getElementById('prevBtn');
+const nextBtn          = document.getElementById('nextBtn');
+const jumpInput        = document.getElementById('jumpInput');
+const jumpBtn          = document.getElementById('jumpBtn');
+const frameCounter     = document.getElementById('frameCounter');
+const outputCode       = document.getElementById('outputCode');
+const outputStats      = document.getElementById('outputStats');
+const copyBtn          = document.getElementById('copyBtn');
+const downloadBtn      = document.getElementById('downloadBtn');
+const progressFill     = document.getElementById('progressFill');
+const phaseLabel       = document.getElementById('phaseLabel');
+const progressText     = document.getElementById('progressText');
+const logBox           = document.getElementById('logBox');
+const statusMessage    = document.getElementById('statusMessage');
+const canvas           = document.getElementById('processingCanvas');
+const ctx              = canvas.getContext('2d');
+const mainCtx          = mainFrameCanvas.getContext('2d');
+
+// ════════════════════════════════════════════════════
+//  DRAG-TO-RESIZE PANELS
+// ════════════════════════════════════════════════════
+
+function makeDragger(divider, opts) {
+    /*
+      opts: {
+        axis: 'h' | 'v',
+        getSize: () => number,        // current size of primary pane in px
+        setSize: (px) => void,        // set size of primary pane
+        min: number, max: () => number
+      }
+    */
+    let dragging = false, startPx = 0, startSize = 0;
+
+    divider.addEventListener('mousedown', e => {
+        dragging = true;
+        startPx   = opts.axis==='h' ? e.clientX : e.clientY;
+        startSize = opts.getSize();
+        divider.classList.add('dragging');
+        document.body.style.cursor = opts.axis==='h' ? 'col-resize' : 'row-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const delta = opts.axis==='h' ? e.clientX - startPx : e.clientY - startPx;
+        const newSize = Math.max(opts.min, Math.min(opts.max(), startSize + delta));
+        opts.setSize(newSize);
+    });
+    document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        divider.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    });
+}
+
+const paneLeft    = document.getElementById('paneLeft');
+const viewerBlock = document.getElementById('viewerBlock');
+const bottomStrip = document.getElementById('bottomStrip');
+
+// Horizontal: left pane width
+makeDragger(document.getElementById('hDiv'), {
+    axis: 'h',
+    getSize: () => paneLeft.offsetWidth,
+    setSize: px  => { paneLeft.style.width = px + 'px'; },
+    min: 200,
+    max: () => window.innerWidth * 0.7,
+});
+
+// Vertical inside right pane: viewer block height
+makeDragger(document.getElementById('vDiv'), {
+    axis: 'v',
+    getSize: () => viewerBlock.offsetHeight,
+    setSize: px  => { viewerBlock.style.height = px + 'px'; viewerBlock.style.flex = 'none'; },
+    min: 80,
+    max: () => {
+        const pane = document.querySelector('.v-split-right');
+        return pane.offsetHeight - 80;
+    },
+});
+
+// Bottom log height (drag the bdiv upward = bigger log)
+makeDragger(document.getElementById('bDiv'), {
+    axis: 'v',
+    getSize: () => bottomStrip.offsetHeight,
+    setSize: px  => { bottomStrip.style.height = px + 'px'; },
+    min: 50,
+    max: () => window.innerHeight * 0.5,
+});
+
+// ════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════
+function formatSize(b) {
+    if (b<1024) return b+' B';
+    if (b<1048576) return (b/1024).toFixed(1)+' KB';
+    if (b<1073741824) return (b/1048576).toFixed(1)+' MB';
+    return (b/1073741824).toFixed(2)+' GB';
+}
+function log(msg, type='dim') {
+    const s=document.createElement('span'); s.className='log-'+type; s.textContent=msg+'\n';
+    logBox.appendChild(s); logBox.scrollTop=logBox.scrollHeight;
+}
+function clearLog() { logBox.innerHTML=''; }
+function setProgress(pct, txt='', err=false) {
+    progressFill.style.width=pct+'%'; progressFill.classList.toggle('error',err); progressText.textContent=txt;
+}
+function setPhase(txt, ok=null) {
+    phaseLabel.textContent=txt;
+    phaseLabel.style.color = ok===true?'var(--green)':ok===false?'var(--red)':'var(--text-muted)';
+}
+function showStatus(msg,type) { statusMessage.textContent=msg; statusMessage.className='status-msg '+type; }
+function rgbToHex(r,g,b) { return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join(''); }
+function hexToRgb(h)      { return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
+function getMode()        { return document.querySelector('input[name="resizeMode"]:checked').value; }
+function getPaletteMode() { return document.querySelector('input[name="paletteMode"]:checked').value; }
+
+function computeTargetDims(sw,sh) {
+    const m=getMode();
+    if(m==='full-width') { const f=MAKECODE_WIDTH/sw; return [MAKECODE_WIDTH,Math.max(1,Math.round(sh*f))]; }
+    if(m==='full-height'){ const f=MAKECODE_HEIGHT/sh; return [Math.max(1,Math.round(sw*f)),MAKECODE_HEIGHT]; }
+    if(m==='full-screen') return [MAKECODE_WIDTH,MAKECODE_HEIGHT];
+    if(m==='scale')       { const sf=parseFloat(scaleFactorEl.value)||0.5; return [Math.max(1,Math.round(sw*sf)),Math.max(1,Math.round(sh*sf))]; }
+    return [parseInt(customWidthEl.value)||160,parseInt(customHeightEl.value)||120];
+}
+
+// ════════════════════════════════════════════════════
+//  PALETTE UI
+// ════════════════════════════════════════════════════
+function buildPaletteGrid() {
+    paletteGridEl.innerHTML='';
+    userPalette.forEach((col,i)=>{
+        const sw=document.createElement('div');
+        sw.className='pal-swatch';
+        sw.setAttribute('data-idx',i.toString(16).toUpperCase());
+        sw.style.background=col?`rgb(${col.join(',')})`:'repeating-linear-gradient(45deg,#333 0,#333 4px,#1e1e1e 0,#1e1e1e 8px)';
+        if(i===0){ sw.title='0: Transparent (fixed)'; sw.style.cursor='default'; }
+        else {
+            const pk=document.createElement('input'); pk.type='color';
+            pk.value=col?rgbToHex(...col):'#000000'; pk.title=`Index ${i}`;
+            pk.addEventListener('input',()=>{
+                userPalette[i]=hexToRgb(pk.value);
+                sw.style.background=`rgb(${userPalette[i].join(',')})`;
+                invalidateViewerFrames();
+            });
+            sw.appendChild(pk);
+        }
+        paletteGridEl.appendChild(sw);
+    });
+}
+resetPaletteBtn.addEventListener('click',()=>{ userPalette=DEFAULT_PALETTE.map(c=>c?[...c]:null); buildPaletteGrid(); invalidateViewerFrames(); });
+importPaletteBtn.addEventListener('click',()=>paletteFileInput.click());
+paletteFileInput.addEventListener('change',()=>{
+    const f=paletteFileInput.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=e=>{
+        const hexes=[...e.target.result.matchAll(/#([0-9a-fA-F]{6})/g)].map(m=>m[0]);
+        if(hexes.length>=15){ for(let i=1;i<=15&&i-1<hexes.length;i++) userPalette[i]=hexToRgb(hexes[i-1]); buildPaletteGrid(); invalidateViewerFrames(); log(`// Imported ${Math.min(hexes.length,15)} palette colours`,'ok'); }
+        else log(`// Only ${hexes.length} hex colours found (need 15)`,'warn');
+    };
+    rd.readAsText(f);
+});
+buildPaletteGrid();
+
+// ════════════════════════════════════════════════════
+//  VIDEO UPLOAD
+// ════════════════════════════════════════════════════
+uploadZone.addEventListener('click',()=>videoInput.click());
+uploadZone.addEventListener('dragover',e=>{e.preventDefault();uploadZone.classList.add('dragover');});
+uploadZone.addEventListener('dragleave',()=>uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop',e=>{
+    e.preventDefault(); uploadZone.classList.remove('dragover');
+    const f=e.dataTransfer.files[0];
+    if(f&&f.type.startsWith('video/')) loadVideo(f);
+});
+videoInput.addEventListener('change',()=>{ if(videoInput.files[0]) loadVideo(videoInput.files[0]); });
+
+function loadVideo(file) {
+    loadedVideoFile=file;
+    videoPreview.src=URL.createObjectURL(file);
+    videoPreview.style.display='block'; previewPh.style.display='none';
+    convertBtn.disabled=false; estBtn.disabled=false;
+    videoPreview.onloadedmetadata=()=>{
+        log(`// Loaded: ${file.name}  (${formatSize(file.size)})`,'info');
+        log(`// ${videoPreview.duration.toFixed(2)}s  |  ${videoPreview.videoWidth}×${videoPreview.videoHeight}px`,'dim');
+        updateDimDisplay();
+    };
+}
+
+// ════════════════════════════════════════════════════
+//  RESIZE / PALETTE MODE
+// ════════════════════════════════════════════════════
+document.querySelectorAll('input[name="resizeMode"]').forEach(r=>r.addEventListener('change',onModeChange));
+document.querySelectorAll('input[name="paletteMode"]').forEach(r=>r.addEventListener('change',onPaletteModeChange));
+scaleFactorEl.addEventListener('input',updateDimDisplay);
+customWidthEl.addEventListener('input',updateDimDisplay);
+customHeightEl.addEventListener('input',updateDimDisplay);
+
+function onModeChange(){
+    scaleExtra.classList.toggle('hidden',getMode()!=='scale');
+    customExtra.classList.toggle('hidden',getMode()!=='custom');
+    updateDimDisplay();
+}
+function updateDimDisplay(){
+    const m=getMode(); let t='';
+    if(m==='full-width') t=`→ ${MAKECODE_WIDTH} px wide (height auto)`;
+    else if(m==='full-height') t=`→ ${MAKECODE_HEIGHT} px tall (width auto)`;
+    else if(m==='full-screen') t=`→ ${MAKECODE_WIDTH} × ${MAKECODE_HEIGHT} px (stretched)`;
+    else if(m==='scale'){ const sf=parseFloat(scaleFactorEl.value)||0.5; t=(loadedVideoFile&&videoPreview.videoWidth)?`→ ×${sf.toFixed(2)} = ${Math.round(videoPreview.videoWidth*sf)} × ${Math.round(videoPreview.videoHeight*sf)} px`:`→ ×${sf.toFixed(2)} (original scaled)`; }
+    else t=`→ ${customWidthEl.value||'?'} × ${customHeightEl.value||'?'} px`;
+    dimDisplay.textContent=t;
+}
+function onPaletteModeChange(){
+    if(getPaletteMode()==='adaptive'){ paletteNote.textContent='Per-frame palette swaps. Best accuracy, larger output. Requires Color Fading extension.'; paletteNote.classList.add('active'); }
+    else { paletteNote.textContent='Pixels snapped to the global palette below. Click any swatch to customise.'; paletteNote.classList.remove('active'); }
+}
+
+// ════════════════════════════════════════════════════
+//  COLOUR QUANTISATION
+// ════════════════════════════════════════════════════
+function nearestUserPalIdx(r,g,b){
+    let best=1,bd=Infinity;
+    for(let i=1;i<userPalette.length;i++){
+        if(!userPalette[i]) continue;
+        const[pr,pg,pb]=userPalette[i];
+        const d=(r-pr)**2+(g-pg)**2+(b-pb)**2;
+        if(d<bd){bd=d;best=i;}
+    }
+    return best;
+}
+function buildAdaptivePalette(id,w,h){
+    const data=id.data,px=[];
+    for(let i=0;i<w*h;i++) if(data[i*4+3]>0) px.push([data[i*4],data[i*4+1],data[i*4+2]]);
+    if(!px.length) return{palette:Array.from({length:15},()=>[0,0,0]),indexFn:()=>1};
+    const step=Math.max(1,Math.floor(px.length/15));
+    let c=Array.from({length:15},(_,i)=>[...px[Math.min(i*step,px.length-1)]]);
+    for(let it=0;it<6;it++){
+        const s=Array.from({length:15},()=>[0,0,0,0]);
+        for(const[r,g,b]of px){let b2=0,d2=Infinity;for(let k=0;k<15;k++){const[cr,cg,cb]=c[k];const d=(r-cr)**2+(g-cg)**2+(b-cb)**2;if(d<d2){d2=d;b2=k;}}s[b2][0]+=r;s[b2][1]+=g;s[b2][2]+=b;s[b2][3]++;}
+        c=s.map(([r,g,b,n],i)=>n>0?[Math.round(r/n),Math.round(g/n),Math.round(b/n)]:c[i]);
+    }
+    const pal=c;
+    function indexFn(r,g,b){let best=0,bd=Infinity;for(let k=0;k<15;k++){const[cr,cg,cb]=pal[k];const d=(r-cr)**2+(g-cg)**2+(b-cb)**2;if(d<bd){bd=d;best=k;}}return best+1;}
+    return{palette:pal,indexFn};
+}
+function frameToSprite(id,w,h,pm){
+    const data=id.data; let fp=null,indexFn;
+    if(pm==='adaptive'){const r=buildAdaptivePalette(id,w,h);fp=r.palette;indexFn=r.indexFn;}
+    else indexFn=(r,g,b)=>nearestUserPalIdx(r,g,b);
+    const rows=[];
+    for(let y=0;y<h;y++){
+        let row='';
+        for(let x=0;x<w;x++){const i=(y*w+x)*4;row+=data[i+3]===0?'0':indexFn(data[i],data[i+1],data[i+2]).toString(16);}
+        rows.push(row);
+    }
+    return{sprite:'img`\n'+rows.join('\n')+'\n`',palette:fp};
+}
+
+// ════════════════════════════════════════════════════
+//  FRAME RENDERING
+// ════════════════════════════════════════════════════
+function renderSpriteLines(lines,palette16){
+    if(!lines||!lines.length) return null;
+    const h=lines.length,w=lines[0].length;
+    const oc=document.createElement('canvas'); oc.width=w; oc.height=h;
+    const octx=oc.getContext('2d');
+    const id=octx.createImageData(w,h); const px=id.data;
+    for(let y=0;y<h;y++){
+        const row=lines[y]||'';
+        for(let x=0;x<w;x++){
+            const ch=row[x]||'0',idx=parseInt(ch,16),col=palette16[idx],off=(y*w+x)*4;
+            if(!col||idx===0){px[off]=0;px[off+1]=0;px[off+2]=0;px[off+3]=0;}
+            else{px[off]=col[0];px[off+1]=col[1];px[off+2]=col[2];px[off+3]=255;}
+        }
+    }
+    octx.putImageData(id,0,0); return oc;
+}
+function effectivePal16(fi){
+    const frame=viewerFrames[fi]; if(!frame) return userPalette;
+    if(frame.palette) return [null,...frame.palette];
+    return userPalette;
+}
+function getRendered(fi){
+    const frame=viewerFrames[fi]; if(!frame) return null;
+    const pal=effectivePal16(fi);
+    const key=pal.map(c=>c?c.join(','):'T').join('|');
+    if(frame._rendered&&frame._palKey===key) return frame._rendered;
+    frame._rendered=renderSpriteLines(frame.spriteLines,pal);
+    frame._palKey=key;
+    return frame._rendered;
+}
+function invalidateViewerFrames(){
+    for(const f of viewerFrames){f._rendered=null;f._palKey=null;}
+    if(viewerFrames.length) renderViewer();
+}
+
+// ════════════════════════════════════════════════════
+//  VIEWER
+// ════════════════════════════════════════════════════
+const STRIP_H = 40; // fixed pixel height for strip thumbnails
+
+function renderViewer(skipStrip=false){
+    if(!viewerFrames.length) return;
+    const idx=Math.max(0,Math.min(viewerIndex,viewerFrames.length-1));
+    viewerIndex=idx;
+
+    // Main canvas — set bitmap to largest integer multiple that fits container.
+    // Always set bitmap large (e.g. 4× native) and let CSS max-width/max-height
+    // scale it down cleanly inside the flex container.
+    const r=getRendered(idx);
+    if(r){
+        const container=document.getElementById('viewerMain');
+        const cw = container.offsetWidth  - 20;
+        const ch = container.offsetHeight - 20;
+        // Pick the largest integer scale that fits — minimum 1×
+        const scale = Math.max(1, Math.min(Math.floor(cw / r.width), Math.floor(ch / r.height)));
+        const W = r.width  * scale;
+        const H = r.height * scale;
+        mainFrameCanvas.width  = W;
+        mainFrameCanvas.height = H;
+        mainCtx.imageSmoothingEnabled = false;
+        mainCtx.clearRect(0, 0, W, H);
+        mainCtx.drawImage(r, 0, 0, W, H);
+        mainFrameCanvas.style.display = 'block';
+        viewerPh.style.display = 'none';
+    }
+
+    frameCounter.textContent=`// frame ${idx} / ${viewerFrames.length-1}`;
+    jumpInput.value=idx;
+
+    if(skipStrip) return;
+
+    // Strip ±5 — fixed pixel height, scale to fit
+    frameStrip.innerHTML='';
+    const s=Math.max(0,idx-5),e=Math.min(viewerFrames.length-1,idx+5);
+    for(let i=s;i<=e;i++){
+        const thumb=document.createElement('div');
+        thumb.className='s-thumb'+(i===idx?' current':'');
+        const tc=document.createElement('canvas');
+        const r2=getRendered(i);
+        if(r2){
+            // Scale to STRIP_H tall, keep aspect ratio
+            const scale2 = Math.max(1, Math.round(STRIP_H / r2.height));
+            const tw = r2.width  * scale2;
+            const th = r2.height * scale2;
+            tc.width=tw; tc.height=th;
+            tc.style.width=tw+'px'; tc.style.height=th+'px';
+            const tctx=tc.getContext('2d'); tctx.imageSmoothingEnabled=false;
+            tctx.drawImage(r2,0,0,tw,th);
+        } else { tc.width=54; tc.height=STRIP_H; }
+        const lbl=document.createElement('span'); lbl.className='s-lbl'; lbl.textContent=i;
+        thumb.appendChild(tc); thumb.appendChild(lbl);
+        thumb.addEventListener('click',()=>{ if(isPlaying) stopPlayback(); viewerIndex=i; renderViewer(); });
+        frameStrip.appendChild(thumb);
+    }
+}
+
+function enableNav(){
+    prevBtn.disabled=false; nextBtn.disabled=false;
+    jumpInput.disabled=false; jumpBtn.disabled=false;
+    playBtn.disabled=false;
+    jumpInput.max=viewerFrames.length-1;
+}
+
+prevBtn.addEventListener('click',()=>{ if(!viewerFrames.length) return; if(isPlaying) stopPlayback(); viewerIndex=Math.max(0,viewerIndex-1); renderViewer(); });
+nextBtn.addEventListener('click',()=>{ if(!viewerFrames.length) return; if(isPlaying) stopPlayback(); viewerIndex=Math.min(viewerFrames.length-1,viewerIndex+1); renderViewer(); });
+jumpBtn.addEventListener('click',()=>{ const v=parseInt(jumpInput.value); if(!isNaN(v)){ if(isPlaying) stopPlayback(); viewerIndex=Math.max(0,Math.min(v,viewerFrames.length-1)); renderViewer(); } });
+jumpInput.addEventListener('keydown',e=>{if(e.key==='Enter') jumpBtn.click();});
+
+// ════════════════════════════════════════════════════
+//  PLAYBACK ENGINE
+// ════════════════════════════════════════════════════
+
+let playbackStartTime = 0;   // performance.now() when playback began
+let playbackStartFrame = 0;  // viewerIndex at the moment play was pressed
+
+function startPlayback(){
+    if(!viewerFrames.length) return;
+    isPlaying = true;
+    playbackStartTime  = performance.now();
+    playbackStartFrame = viewerIndex;
+    playBtn.textContent = '⏸ Pause';
+    playBtn.classList.remove('btn-play'); playBtn.classList.add('btn-secondary');
+    playAudioFrom(0);
+    scheduleNextFrame();
+}
+
+function stopPlayback(){
+    isPlaying = false;
+    if(playTimer) clearTimeout(playTimer);
+    playTimer = null;
+    playBtn.textContent = '▶ Play';
+    playBtn.classList.remove('btn-secondary'); playBtn.classList.add('btn-play');
+    stopAudio();
+    setPhase('Ready');
+}
+
+function scheduleNextFrame(){
+    if(!isPlaying) return;
+    // Calculate target frame from wall-clock elapsed time — prevents drift accumulation
+    const elapsed = performance.now() - playbackStartTime; // ms since play pressed
+    const targetFrame = playbackStartFrame + Math.round(elapsed / playbackMs);
+
+    let next = targetFrame;
+    let looped = false;
+
+    if(next >= viewerFrames.length){
+        if(loopCheck.checked){
+            next = next % viewerFrames.length;
+            // Reset base so the modulo doesn't keep growing
+            if(next === 0 || next < viewerIndex){
+                looped = true;
+                playbackStartTime  = performance.now();
+                playbackStartFrame = 0;
+                playAudioFrom(0);
+            }
+        } else {
+            stopPlayback();
+            return;
+        }
+    }
+
+    if(next !== viewerIndex){
+        viewerIndex = next;
+        renderViewer(true);
+        if(next % 10 === 0) renderViewer(false);
+    }
+
+    // Schedule next tick at the exact ms the NEXT frame should appear
+    const nextFrameTime = playbackStartTime + (next - playbackStartFrame + 1) * playbackMs;
+    const delay = Math.max(0, nextFrameTime - performance.now());
+    playTimer = setTimeout(scheduleNextFrame, delay);
+}
+playBtn.addEventListener('click',()=>{
+    if(isPlaying) stopPlayback(); else startPlayback();
+});
+
+// Volume slider
+const volSlider = document.getElementById('volSlider');
+function updateVolSliderTrack() {
+    const pct = volSlider.value * 100;
+    volSlider.style.background = `linear-gradient(to right, var(--purple) 0%, var(--purple) ${pct}%, var(--bg-input) ${pct}%)`;
+}
+volSlider.addEventListener('input', () => {
+    if (gainNode) gainNode.gain.value = parseFloat(volSlider.value);
+    updateVolSliderTrack();
+});
+updateVolSliderTrack();
+
+// ════════════════════════════════════════════════════
+//  AUDIO ENGINE  (mirrors Python synthesise_spectrogram_audio)
+//  Each hex buffer = one frequency band, 12-byte instructions:
+//    [0]   waveform (ignored — always sine)
+//    [1]   unused
+//    [2-3] frequency Hz  (little-endian uint16)
+//    [4-5] duration ms   (little-endian uint16)
+//    [6-7] start volume  (0-1024, little-endian uint16)
+//    [8-9] end volume    (same or different)
+//   [10-11] end frequency
+//  All bands play simultaneously and are mixed.
+// ════════════════════════════════════════════════════
+
+let audioCtx      = null;
+let audioBuffer   = null;   // decoded AudioBuffer ready to play
+let audioSource   = null;   // current AudioBufferSourceNode (for looping)
+let gainNode      = null;   // GainNode for volume control
+let audioLoopMs   = 0;
+let audioReady    = false;
+
+function getAudioCtx() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = parseFloat(document.getElementById('volSlider').value);
+        gainNode.connect(audioCtx.destination);
+    }
+    return audioCtx;
+}
+
+/**
+ * Synthesise the MakeCode hex buffers into PCM for playback preview —
+ * this is what MakeCode actually plays, not the original video audio.
+ */
+function buildAudioBuffer(hexBuffers, loopMs) {
+    audioReady  = false;
+    audioBuffer = null;
+    audioLoopMs = loopMs;
+    if (!hexBuffers || !hexBuffers.length) return;
+    log('// Synthesising audio preview…', 'info');
+    setTimeout(() => {
+        try {
+            const SR = 44100;
+            const bands = hexBuffers
+                .map(hx => new Uint8Array(hx.match(/.{2}/g).map(b => parseInt(b,16))))
+                .filter(b => b.length >= 12);
+            if (!bands.length) return;
+            const b0       = bands[0];
+            const stride   = (b0.length % 12 === 0) ? 12 : 10;
+            const nInstr   = Math.floor(b0.length / stride);
+            const periodMs = new DataView(b0.buffer).getUint16(4, true) || 25;
+            const spp      = Math.round(SR * periodMs / 1000);
+            const mix      = new Float64Array(nInstr * spp);
+            for (const band of bands) {
+                const dv = new DataView(band.buffer);
+                const n  = Math.min(nInstr, Math.floor(band.length / stride));
+                let phase = 0;
+                for (let i = 0; i < n; i++) {
+                    const off  = i * stride;
+                    const freq = dv.getUint16(off + 2, true);
+                    const vol  = dv.getUint16(off + 6, true) / 1024;
+                    if (freq === 0) continue;
+                    const nf = (i+1 < n) ? dv.getUint16((i+1)*stride+2, true) : freq;
+                    const nv = (i+1 < n) ? dv.getUint16((i+1)*stride+6, true) / 1024 : 0;
+                    const sl = i * spp;
+                    for (let j = 0; j < spp; j++) {
+                        const t = j / (spp - 1 || 1);
+                        phase  += 2 * Math.PI * (freq + (nf > 0 ? nf - freq : 0) * t) / SR;
+                        mix[sl + j] += Math.sin(phase) * (vol + (nv - vol) * t);
+                    }
+                    phase %= 2 * Math.PI;
+                }
+            }
+            let peak = 0;
+            for (let i = 0; i < mix.length; i++) { const a = Math.abs(mix[i]); if (a > peak) peak = a; }
+            const g = peak > 0 ? 0.88 / peak : 1;
+            const pcm = new Float32Array(mix.length);
+            for (let i = 0; i < mix.length; i++) pcm[i] = mix[i] * g;
+            const actx = getAudioCtx();
+            const buf  = actx.createBuffer(1, pcm.length, SR);
+            buf.copyToChannel(pcm, 0);
+            audioBuffer = buf;
+            audioReady  = true;
+            log(`// Audio preview ready: ${(pcm.length/SR).toFixed(1)}s`, 'ok');
+            if (isPlaying) playAudioFrom(0);
+        } catch(e) {
+            log('// Audio synthesis failed: ' + e.message, 'warn');
+        }
+    }, 0);
+}
+
+function playAudioFrom(offsetSec=0) {
+    if (!audioReady || !audioBuffer) return;
+    stopAudio();
+    const actx = getAudioCtx();
+    if (actx.state === 'suspended') actx.resume();
+    audioSource = actx.createBufferSource();
+    audioSource.buffer = audioBuffer;
+    audioSource.loop   = false;  // never auto-loop — video loop restarts it explicitly
+    audioSource.connect(gainNode);
+    audioSource.start(0, Math.max(0, Math.min(offsetSec, audioBuffer.duration - 0.01)));
+}
+
+function stopAudio() {
+    if (audioSource) {
+        try { audioSource.stop(); } catch(e) {}
+        audioSource.disconnect();
+        audioSource = null;
+    }
+}
+
+// ════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+importOutputBtn.addEventListener('click',()=>outputFileInput.click());
+outputFileInput.addEventListener('change',()=>{
+    const f=outputFileInput.files[0]; if(!f) return;
+    setPhase('Parsing output file…'); setProgress(10);
+    const rd=new FileReader();
+    rd.onload=e=>{try{parseOutputFile(e.target.result,f.name);}catch(err){log('// [ERROR] '+err.message,'error');showStatus('Parse error: '+err.message,'error');setPhase('Error',false);}};
+    rd.readAsText(f);
+});
+
+function parseOutputFile(data,filename){
+    stopPlayback();
+    stopAudio();
+    audioReady=false; audioBuffer=null;
+    log(`// Parsing: ${filename}`,'info');
+
+    // 1. Read game.onUpdateInterval ms
+    const intervalMatch=data.match(/game\.onUpdateInterval\s*\(\s*(\d+)/);
+    if(intervalMatch){ playbackMs=parseInt(intervalMatch[1]); log(`// Playback: ${playbackMs}ms/frame (${(1000/playbackMs).toFixed(1)} fps)`,'dim'); }
+    else { playbackMs=33; log('// No interval found — defaulting to 33ms/frame','warn'); }
+    playMsLabel.textContent=`// ${playbackMs}ms/frame  (${(1000/playbackMs).toFixed(1)} fps)`;
+
+    // 2. Parse soundInstructions hex buffers (mirrors Python parse_audio_from_text)
+    const siMatch = data.match(/const soundInstructions\s*=\s*\[/);
+    if (siMatch) {
+        const siStart = data.indexOf(siMatch[0]);
+        let depth=0, i=siStart+siMatch[0].length, inB=false;
+        while(i<data.length){ if(data[i]==='['){depth++;inB=true;}else if(data[i]===']'){depth--;if(inB&&depth===0){i++;break;}}i++; }
+        const siBlock = data.slice(siStart, i);
+        const hexMatches = [...siBlock.matchAll(/hex`([0-9a-fA-F\s\r\n]+)`/g)];
+        const hexBuffers = hexMatches
+            .map(m => m[1].replace(/[\s\r\n]/g,''))
+            .filter(h => h.length >= 24);
+        if (hexBuffers.length) {
+            log(`// Audio: ${hexBuffers.length} frequency bands found`,'info');
+            buildAudioBuffer(hexBuffers, playbackMs);
+        } else {
+            log('// No valid audio hex buffers found','dim');
+        }
+    } else {
+        log('// No audio in file','dim');
+    }
+
+    // 3. Adaptive palettes
+    const palettes=parsePalettesFromText(data);
+    log(`// Palettes: ${palettes?palettes.length+' frames':'none'}`,'dim');
+    setProgress(30);
+
+    // 3. Frames
+    let rawFrames=[];
+    if(data.includes('decodeRLE(')){
+        for(const b of data.split('decodeRLE(').slice(1)){
+            const inner=b.split('`')[1];
+            if(inner!==undefined) rawFrames.push(decodeRLEBlock(inner));
+        }
+    } else {
+        for(const b of data.split('img`').slice(1)){
+            const lines=b.split('`')[0].trim().split('\n').map(l=>l.trim()).filter(Boolean);
+            if(lines.length) rawFrames.push(lines);
+        }
+    }
+    log(`// Frames: ${rawFrames.length}`,rawFrames.length?'ok':'warn');
+    setProgress(80);
+    if(!rawFrames.length){showStatus('No frames found.','error');setPhase('Error',false);return;}
+
+    viewerFrames=rawFrames.map((lines,i)=>({
+        spriteLines:lines,
+        palette:palettes?palettes[Math.min(i,palettes.length-1)]:null,
+        _rendered:null,_palKey:null
+    }));
+    viewerIndex=0;
+    const W=rawFrames[0][0]?.length||0,H=rawFrames[0].length||0;
+    enableNav(); renderViewer();
+    setProgress(100,`Loaded ${rawFrames.length} frames`);
+    setPhase('✔ Import complete',true);
+    showStatus(`✔ ${rawFrames.length} frames — ${playbackMs}ms/frame`,'success');
+    outputStats.textContent=`${rawFrames.length} frames · ${W}×${H}px · ${playbackMs}ms/frame`;
+}
+
+function parsePalettesFromText(data){
+    const m=data.match(/const palettes\s*=\s*\[/); if(!m) return null;
+    let depth=0,i=data.indexOf(m[0]),inB=false;
+    while(i<data.length){if(data[i]==='['){depth++;inB=true;}else if(data[i]===']'){depth--;if(inB&&depth===0){i++;break;}}i++;}
+    const block=data.slice(data.indexOf(m[0]),i);
+    const triples=[...block.matchAll(/\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]/g)];
+    const pals=[];
+    for(let j=0;j<triples.length-14;j+=15) pals.push(triples.slice(j,j+15).map(t=>[+t[1],+t[2],+t[3]]));
+    return pals.length?pals:null;
+}
+function decodeRLEBlock(data){
+    const out=[];
+    for(const rawLine of data.trim().split('\n')){
+        const row=rawLine.trim(); let decoded='',i=0;
+        while(i<row.length){
+            let count=0;
+            while(i<row.length&&row[i]>='0'&&row[i]<='9'){count=count*10+parseInt(row[i]);i++;}
+            if(i<row.length){decoded+=row[i].repeat(count||1);i++;}
+        }
+        if(decoded) out.push(decoded);
+    }
+    return out;
+}
+
+// ════════════════════════════════════════════════════
+//  AUDIO EXTRACTION  (matches videomakecodeconverter.html)
+//
+//  Uses a spectrogram approach:
+//  - FFT with Hann window per 25ms period
+//  - 20 frequency bucket ranges (matching the reference)
+//  - Per bucket: find the LOUDEST frequency bin and its amplitude
+//  - Encode as 12-byte MakeCode sound instructions
+//  - Normalise globally (not per-band) to preserve relative volumes
+// ════════════════════════════════════════════════════
+
+// 20 frequency bucket upper bounds matching the reference HTML exactly
+const FREQUENCY_BUCKETS = [50,159,200,252,317,400,504,635,800,1008,
+                            1270,1600,2016,2504,3200,4032,5080,7000,9000,10240];
+
+/**
+ * Decode video's audio track to mono Float32Array via Web Audio API.
+ * Returns {pcm, sr} or null.
+ */
+async function decodeVideoAudio(videoFile) {
+    try {
+        const actx  = getAudioCtx();
+        const arrBuf = await videoFile.arrayBuffer();
+        const audioBuf = await actx.decodeAudioData(arrBuf);
+        // Mix to mono
+        const mono = new Float32Array(audioBuf.length);
+        for (let ch = 0; ch < audioBuf.numberOfChannels; ch++) {
+            const d = audioBuf.getChannelData(ch);
+            for (let i = 0; i < mono.length; i++) mono[i] += d[i];
+        }
+        const k = 1 / audioBuf.numberOfChannels;
+        for (let i = 0; i < mono.length; i++) mono[i] *= k;
+        return { pcm: mono, sr: audioBuf.sampleRate };
+    } catch(e) {
+        return null;
+    }
+}
+
+/**
+ * In-place Cooley-Tukey radix-2 FFT (matches reference HTML worker).
+ */
+function fft(real, imag) {
+    const n = real.length;
+    // Bit-reversal
+    for (let i = 0, j = 0; i < n; i++) {
+        if (i < j) {
+            [real[i], real[j]] = [real[j], real[i]];
+            [imag[i], imag[j]] = [imag[j], imag[i]];
+        }
+        let k = n >> 1;
+        while (k > 0 && k <= j) { j -= k; k >>= 1; }
+        j += k;
+    }
+    // Butterfly
+    for (let len = 2; len <= n; len <<= 1) {
+        const halfLen = len >> 1;
+        const angle   = -2 * Math.PI / len;
+        for (let i = 0; i < n; i += len) {
+            for (let j = 0; j < halfLen; j++) {
+                const cos   = Math.cos(angle * j);
+                const sin   = Math.sin(angle * j);
+                const tReal = real[i+j+halfLen]*cos - imag[i+j+halfLen]*sin;
+                const tImag = real[i+j+halfLen]*sin + imag[i+j+halfLen]*cos;
+                real[i+j+halfLen] = real[i+j] - tReal;
+                imag[i+j+halfLen] = imag[i+j] - tImag;
+                real[i+j] += tReal;
+                imag[i+j] += tImag;
+            }
+        }
+    }
+}
+
+/**
+ * Analyse mono PCM and return 20 hex-encoded sound instruction buffers.
+ * periodMs: slice duration (default 25)
+ * gain:     amplitude multiplier (default 2.5)
+ */
+function extractAudioBands(pcm, sr, startSec, endSec, periodMs=25, gain=2.5) {
+    const startSample = Math.floor(startSec * sr);
+    const endSample   = Math.min(pcm.length, Math.floor(endSec * sr));
+
+    // FFT window size: next power-of-2 >= samplesPerPeriod
+    const hopSize    = Math.round(sr * periodMs / 1000);
+    let   windowSize = 1;
+    while (windowSize < hopSize) windowSize <<= 1;
+    const numBins    = windowSize >> 1;
+    const segment    = new Float32Array(endSample - startSample);
+    for (let i = 0; i < segment.length; i++) segment[i] = pcm[startSample + i];
+
+    const numFrames  = Math.max(1, Math.floor((segment.length - windowSize) / hopSize) + 1);
+    const freqRes    = sr / windowSize;
+
+    // Pre-compute Hann window
+    const hann = new Float32Array(windowSize);
+    for (let i = 0; i < windowSize; i++)
+        hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (windowSize - 1)));
+
+    // Working buffers
+    const re = new Float32Array(windowSize);
+    const im = new Float32Array(windowSize);
+
+    // soundBuffers[b] = hex string of concatenated 12-byte instructions
+    const soundBuffers = FREQUENCY_BUCKETS.map(() => '');
+
+    // Global max for normalisation (matches reference — single pass over all frames/buckets)
+    let globalMax = 0;
+    const frameData = []; // [{loudestFreqs[], loudestAmps[]}]
+
+    for (let frame = 0; frame < numFrames; frame++) {
+        const base   = frame * hopSize;
+        re.fill(0); im.fill(0);
+        const maxI = Math.min(windowSize, segment.length - base);
+        for (let i = 0; i < maxI; i++) re[i] = segment[base + i] * hann[i];
+        fft(re, im);
+
+        // Compute magnitudes
+        const mags = new Float32Array(numBins);
+        for (let i = 0; i < numBins; i++)
+            mags[i] = Math.sqrt(re[i]*re[i] + im[i]*im[i]);
+
+        // Per bucket: find loudest frequency bin
+        const freqs = new Float32Array(FREQUENCY_BUCKETS.length);
+        const amps  = new Float32Array(FREQUENCY_BUCKETS.length);
+        for (let b = 0; b < FREQUENCY_BUCKETS.length; b++) {
+            const lo = b > 0 ? FREQUENCY_BUCKETS[b-1] : 0;
+            const hi = FREQUENCY_BUCKETS[b];
+            let loudestFreq = 0, loudestAmp = 0;
+            for (let i = 0; i < numBins; i++) {
+                const f = i * freqRes;
+                if (f >= lo && f <= hi && mags[i] > loudestAmp) {
+                    loudestAmp  = mags[i];
+                    loudestFreq = f;
+                }
+            }
+            freqs[b] = loudestFreq;
+            amps[b]  = loudestAmp;
+            if (loudestAmp > globalMax) globalMax = loudestAmp;
+        }
+        frameData.push({ freqs, amps });
+    }
+
+    if (globalMax === 0) globalMax = 1;
+
+    // Encode instructions
+    for (let frame = 0; frame < numFrames; frame++) {
+        const { freqs, amps } = frameData[frame];
+        for (let b = 0; b < FREQUENCY_BUCKETS.length; b++) {
+            const f   = freqs[b];
+            const vol = f > 0 ? Math.min(1024, Math.round((amps[b] / globalMax) * 1024 * gain)) : 0;
+            soundBuffers[b] += encodeInstruction(f, f, vol, vol, periodMs);
+        }
+    }
+
+    return { hexBuffers: soundBuffers, nPeriods: numFrames };
+}
+
+/** Encode one 12-byte MakeCode sound instruction as hex (matches reference). */
+function encodeInstruction(startFreq, endFreq, startVol, endVol, durationMs) {
+    const buf = new ArrayBuffer(12);
+    const dv  = new DataView(buf);
+    dv.setUint8(0,  3);   // sine waveform
+    dv.setUint8(1,  0);
+    dv.setUint16(2,  Math.max(1, Math.round(startFreq)), true);
+    dv.setUint16(4,  Math.round(durationMs),             true);
+    dv.setUint16(6,  Math.min(1024, Math.max(0, Math.round(startVol))), true);
+    dv.setUint16(8,  Math.min(1024, Math.max(0, Math.round(endVol))),   true);
+    dv.setUint16(10, Math.max(1, Math.round(endFreq)),   true);
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// ════════════════════════════════════════════════════
+//  SIZE ESTIMATE
+// ════════════════════════════════════════════════════
+estBtn.addEventListener('click',()=>{
+    if(!loadedVideoFile||!videoPreview.duration) return;
+    const dur=videoPreview.duration;
+    const sf=parseInt(document.getElementById('startFrame').value)||0;
+    const total=Math.round(dur*ASSUMED_FPS);
+    const efStr=document.getElementById('endFrame').value.trim();
+    const ef=efStr?Math.min(parseInt(efStr),total):total;
+    const intv=Math.max(1,parseInt(document.getElementById('frameInterval').value)||1);
+    const fc=Math.max(0,Math.ceil((ef-sf)/intv));
+    const[tw,th]=computeTargetDims(videoPreview.videoWidth,videoPreview.videoHeight);
+    const pm=getPaletteMode();
+    const ob=fc*(6+th*(tw+1)+2+(pm==='adaptive'?15*20+6:0))+400;
+    estFrames.textContent=fc.toLocaleString();
+    estDims.textContent=`${tw} × ${th} px`;
+    estFps.textContent=`~${ASSUMED_FPS} fps`;
+    estOutputSize.textContent=formatSize(ob);
+    estDuration.textContent=`${((ef-sf)/ASSUMED_FPS).toFixed(1)}s`;
+    if(ob>50*1024*1024){estNote.textContent=`⚠ Very large (${formatSize(ob)}) — MakeCode may struggle.`;estNote.style.color='var(--red)';}
+    else if(ob>10*1024*1024){estNote.textContent=`△ Large (${formatSize(ob)}) — consider higher interval.`;estNote.style.color='var(--yellow)';}
+    else{estNote.textContent=`✔ Looks fine. Source: ${videoPreview.videoWidth}×${videoPreview.videoHeight}`;estNote.style.color='var(--green)';}
+});
+
+// ════════════════════════════════════════════════════
+//  CONVERSION PIPELINE
+// ════════════════════════════════════════════════════
+convertBtn.addEventListener('click',startConversion);
+async function startConversion(){
+    if(isRunning||!loadedVideoFile) return;
+    stopPlayback();
+    isRunning=true; clearLog();
+    convertBtn.disabled=true; estBtn.disabled=true;
+    copyBtn.disabled=true; downloadBtn.disabled=true;
+    statusMessage.className='status-msg';
+    viewerFrames=[]; viewerIndex=0;
+    frameStrip.innerHTML='<span style="font-size:9px;color:var(--text-muted);">// processing…</span>';
+    mainFrameCanvas.style.display='none'; viewerPh.style.display='block';
+    outputCode.textContent='// Conversion in progress…';
+    try{await runPipeline();}
+    catch(err){
+        log('// [ERROR] '+err.message,'error');
+        setPhase('✖ Error',false); setProgress(100,'Error',true);
+        showStatus('Error: '+err.message,'error');
+    }
+    isRunning=false; convertBtn.disabled=false; estBtn.disabled=false;
+}
+
+function buildAudioTs(hexBufs, intervalMs) {
+    if (!hexBufs || !hexBufs.length) return '';
+    // Matches generateAudioCode / generateCombinedCode from reference HTML
+    let s = 'namespace music {\n';
+    s += '    //% shim=music::queuePlayInstructions\n';
+    s += '    export function queuePlayInstructions(timeDelta: number, buf: Buffer) { }\n';
+    s += '}\n\n';
+    s += 'const soundInstructions = [\n';
+    for (const hx of hexBufs) s += `    hex\`${hx}\`,\n`;
+    s += ']\n\n';
+    s += '// Start audio playback (runs in parallel with video)\n';
+    s += 'for (const instructions of soundInstructions) {\n';
+    s += '    music.queuePlayInstructions(0, instructions)\n';
+    s += '}\n\n';
+    return s;
+}
+
+async function runPipeline(){
+    const pm=getPaletteMode();
+    const intv=Math.max(1,parseInt(document.getElementById('frameInterval').value)||1);
+    const startF=parseInt(document.getElementById('startFrame').value)||0;
+    const efStr=document.getElementById('endFrame').value.trim();
+
+    setPhase('Phase 1 / 2 — Extracting Frames');
+    setProgress(0,'Initialising…');
+    log('// ──────────────────────────────','dim');
+    log('// ▶ Starting pipeline…','info');
+
+    const vid=document.createElement('video');
+    vid.src=URL.createObjectURL(loadedVideoFile); vid.muted=true;
+    await new Promise((res,rej)=>{vid.onloadedmetadata=res;vid.onerror=()=>rej(new Error('Cannot open video.'));vid.load();});
+
+    const dur=vid.duration,sw=vid.videoWidth,sh=vid.videoHeight;
+    const[tw,th]=computeTargetDims(sw,sh);
+    log(`// Source: ${sw}×${sh}  →  ${tw}×${th}  (${dur.toFixed(2)}s)`,'info');
+
+    const totalExp=Math.round(dur*ASSUMED_FPS);
+    const endF=efStr?Math.min(parseInt(efStr),totalExp):totalExp;
+    const timestamps=[];
+    for(let f=startF;f<endF;f+=intv) timestamps.push(f/ASSUMED_FPS);
+    if(!timestamps.length) throw new Error('No frames in range.');
+
+    log(`// Extracting ${timestamps.length} frames at ${tw}×${th}px…`,'info');
+    canvas.width=tw; canvas.height=th;
+    const frames=[];
+
+    for(let i=0;i<timestamps.length;i++){
+        vid.currentTime=Math.min(timestamps[i],dur-0.001);
+        await new Promise(res=>{vid.onseeked=res;setTimeout(res,300);});
+        ctx.drawImage(vid,0,0,tw,th);
+        const id=ctx.getImageData(0,0,tw,th);
+        const{sprite,palette}=frameToSprite(id,tw,th,pm);
+        const spriteLines=sprite.split('\n').slice(1,-1);
+        frames.push({sprite,spriteLines,palette,_rendered:null,_palKey:null});
+        setProgress(Math.round((i+1)/timestamps.length*100),`Extracting ${i+1}/${timestamps.length}`);
+        if(i%5===0) await new Promise(res=>setTimeout(res,0));
+    }
+
+    URL.revokeObjectURL(vid.src);
+    log(`// Extracted ${frames.length} frames.`,'ok');
+
+    // intMs: use the actual video clip duration divided by number of extracted frames.
+    // This is the correct interval for game.onUpdateInterval — it ensures one full
+    // pass through all frames equals exactly the original clip duration.
+    const clipStartSec = startF / ASSUMED_FPS;
+    const clipEndSec   = endF < totalExp ? endF / ASSUMED_FPS : dur;
+    const clipDurMs    = (clipEndSec - clipStartSec) * 1000;
+    const intMs        = frames.length > 0 ? Math.round(clipDurMs / frames.length) : 33;
+    playbackMs  = intMs;
+    playMsLabel.textContent = `// ${intMs}ms/frame  (${(1000/intMs).toFixed(2)} fps)`;
+
+    // ── Phase 1.5: Extract audio ──────────────────────────────────────────
+    let audioHexBuffers = null;
+    const doAudio = document.getElementById('extractAudioCheck').checked;
+    if (doAudio) {
+        setPhase('Phase 1.5 / 2 — Extracting Audio');
+        setProgress(0, 'Decoding audio…');
+        log('// Decoding video audio…', 'info');
+        const audioResult = await decodeVideoAudio(loadedVideoFile);
+        if (audioResult) {
+            const { pcm, sr } = audioResult;
+            const startSec = startF / ASSUMED_FPS;
+            const endSec   = endF   / ASSUMED_FPS;
+            log(`// Analysing ${(endSec-startSec).toFixed(1)}s of audio (${FREQUENCY_BUCKETS.length} bands)…`, 'info');
+            setProgress(50, 'Analysing frequency bands…');
+            await new Promise(res => setTimeout(res, 0));
+            const { hexBuffers, nPeriods } = extractAudioBands(pcm, sr, startSec, endSec, 25, 2.5);
+            audioHexBuffers = hexBuffers;
+            log(`// Audio: ${nPeriods} periods × ${FREQUENCY_BUCKETS.length} bands encoded`, 'ok');
+            buildAudioBuffer(hexBuffers, intMs);
+        } else {
+            log('// No audio track found in video (or decode failed)', 'warn');
+        }
+    }
+
+    setPhase('Phase 2 / 2 — Building Output');
+    setProgress(0,'Building TypeScript…');
+
+    let tsOut='';
+    if(pm==='adaptive'){
+        tsOut='const frames: Image[] = [\n'+frames.map(f=>f.sprite).join(',\n')+'\n]\n\n';
+        tsOut+='const palettes = [\n';
+        for(const f of frames){tsOut+='  [\n';for(const[r,g,b]of(f.palette||[])){tsOut+=`    [${r},${g},${b}],\n`;}tsOut+='  ],\n';}
+        tsOut+=']\n\n';
+        if (audioHexBuffers) tsOut += buildAudioTs(audioHexBuffers, intMs);
+        tsOut+=`let lastPalette = -1\nfunction applyPalette(frame: number) {\n    if (frame == lastPalette) return\n    lastPalette = frame\n    for (let i = 0; i < 15; i++) {\n        let c = palettes[frame][i]\n        color.setColor(i + 1, color.rgb(c[0], c[1], c[2]))\n    }\n}\nlet video = sprites.create(frames[0])\nvideo.setPosition(80, 60)\nlet frame = 0\napplyPalette(0)\npause(3000)\ngame.onUpdateInterval(${intMs}, function () {\n    frame = (frame + 1) % frames.length\n    applyPalette(frame)\n    video.setImage(frames[frame])\n})\n`;
+    } else {
+        tsOut='const frames: Image[] = [\n'+frames.map(f=>f.sprite).join(',\n')+'\n]\n\n';
+        if (audioHexBuffers) tsOut += buildAudioTs(audioHexBuffers, intMs);
+        tsOut+=`let video = sprites.create(frames[0])\nvideo.setPosition(80, 60)\nlet frame = 0\ngame.onUpdateInterval(${intMs}, function () {\n    frame = (frame + 1) % frames.length\n    video.setImage(frames[frame])\n})\n`;
+    }
+
+    setProgress(100,'Done!');
+    log(`// ✔ ${frames.length} frames | ${formatSize(new Blob([tsOut]).size)}`,'ok');
+    generatedOutput=tsOut;
+    outputCode.textContent=tsOut;
+    outputStats.textContent=`${frames.length} frames · ${tw}×${th}px · ${intMs}ms/frame · ${formatSize(new Blob([tsOut]).size)}`;
+    copyBtn.disabled=false; downloadBtn.disabled=false;
+
+    viewerFrames=frames; viewerIndex=0;
+    enableNav(); renderViewer();
+    setPhase('✔ Complete',true);
+    showStatus(`✔ ${frames.length} frames, ${tw}×${th}px, ${intMs}ms/frame`,'success');
+}
+
+// ════════════════════════════════════════════════════
+//  COPY / DOWNLOAD
+// ════════════════════════════════════════════════════
+copyBtn.addEventListener('click',async()=>{
+    try{await navigator.clipboard.writeText(generatedOutput);showStatus('📋 Copied!','success');}
+    catch{showStatus('Could not copy.','error');}
+});
+downloadBtn.addEventListener('click',()=>{
+    const blob=new Blob([generatedOutput],{type:'text/plain'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='makecode-video.ts'; a.click();
+    URL.revokeObjectURL(url);
+    showStatus('💾 Downloaded makecode-video.ts','success');
+});
+
+// ════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ════════════════════════════════════════════════════
+function switchTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+    document.getElementById('tabBtn' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+}
+
+// ════════════════════════════════════════════════════
+//  IMAGE TAB — STATE
+// ════════════════════════════════════════════════════
+let imgLoadedFile   = null;
+let imgBitmap       = null;   // original ImageBitmap
+let imgGeneratedOutput = '';
+
+// ════════════════════════════════════════════════════
+//  IMAGE TAB — DOM REFS
+// ════════════════════════════════════════════════════
+const imgUploadZone    = document.getElementById('imgUploadZone');
+const imgFileInput     = document.getElementById('imgFileInput');
+const imgPreviewEl     = document.getElementById('imgPreview');
+const imgPreviewPh     = document.getElementById('imgPreviewPh');
+const imgDimDisplay    = document.getElementById('imgDimDisplay');
+const imgConvertBtn    = document.getElementById('imgConvertBtn');
+const imgOutputCode    = document.getElementById('imgOutputCode');
+const imgOutputStats   = document.getElementById('imgOutputStats');
+const imgCopyBtn       = document.getElementById('imgCopyBtn');
+const imgDownloadBtn   = document.getElementById('imgDownloadBtn');
+const imgSwatchStrip   = document.getElementById('imgSwatchStrip');
+const imgSwatchNote    = document.getElementById('imgSwatchNote');
+const imgAdaptiveExtra = document.getElementById('imgAdaptiveExtra');
+const imgCustomExtra   = document.getElementById('imgCustomExtra');
+
+// ════════════════════════════════════════════════════
+//  IMAGE TAB — UPLOAD / DROP
+// ════════════════════════════════════════════════════
+imgUploadZone.addEventListener('click', () => imgFileInput.click());
+imgFileInput.addEventListener('change', e => { if(e.target.files[0]) loadImgFile(e.target.files[0]); });
+
+imgUploadZone.addEventListener('dragover', e => { e.preventDefault(); imgUploadZone.classList.add('dragover'); });
+imgUploadZone.addEventListener('dragleave', () => imgUploadZone.classList.remove('dragover'));
+imgUploadZone.addEventListener('drop', e => {
+    e.preventDefault(); imgUploadZone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) loadImgFile(f);
+});
+
+async function loadImgFile(file) {
+    imgLoadedFile = file;
+    const url = URL.createObjectURL(file);
+    imgBitmap = await createImageBitmap(await fetch(url).then(r => r.blob()));
+    URL.revokeObjectURL(url);
+
+    imgPreviewEl.src = URL.createObjectURL(file);
+    imgPreviewEl.style.display = 'block';
+    imgPreviewPh.style.display = 'none';
+
+    imgConvertBtn.disabled = false;
+    updateImgDimDisplay();
+}
+
+// ════════════════════════════════════════════════════
+//  IMAGE TAB — RESIZE MODE UI
+// ════════════════════════════════════════════════════
+document.querySelectorAll('input[name="imgResizeMode"]').forEach(r =>
+    r.addEventListener('change', () => {
+        imgCustomExtra.classList.toggle('hidden', r.value !== 'custom');
+        updateImgDimDisplay();
+    })
+);
+document.getElementById('imgCustomW').addEventListener('input', updateImgDimDisplay);
+document.getElementById('imgCustomH').addEventListener('input', updateImgDimDisplay);
+
+function getImgResizeMode() {
+    return document.querySelector('input[name="imgResizeMode"]:checked')?.value || 'none';
+}
+
+function computeImgTargetDims(srcW, srcH) {
+    const mode = getImgResizeMode();
+    const MW = 160, MH = 120;
+    if (mode === 'none')       return [srcW, srcH];
+    if (mode === 'fit-width')  return [MW, Math.max(1, Math.round(srcH * (MW / srcW)))];
+    if (mode === 'fit-height') return [Math.max(1, Math.round(srcW * (MH / srcH))), MH];
+    if (mode === 'stretch')    return [MW, MH];
+    if (mode === 'custom') {
+        const cw = parseInt(document.getElementById('imgCustomW').value) || MW;
+        const ch = parseInt(document.getElementById('imgCustomH').value) || MH;
+        return [cw, ch];
+    }
+    return [srcW, srcH];
+}
+
+function updateImgDimDisplay() {
+    if (!imgBitmap) { imgDimDisplay.textContent = '→ no image loaded'; return; }
+    const [tw, th] = computeImgTargetDims(imgBitmap.width, imgBitmap.height);
+    const mode = getImgResizeMode();
+    imgDimDisplay.textContent = mode === 'none'
+        ? `→ ${imgBitmap.width}×${imgBitmap.height}px (original)`
+        : `→ ${imgBitmap.width}×${imgBitmap.height}  →  ${tw}×${th}px`;
+}
+
+// ════════════════════════════════════════════════════
+//  IMAGE TAB — PALETTE MODE UI
+// ════════════════════════════════════════════════════
+document.querySelectorAll('input[name="imgPaletteMode"]').forEach(r =>
+    r.addEventListener('change', () =>
+        imgAdaptiveExtra.classList.toggle('hidden', r.value !== 'adaptive')
+    )
+);
+
+function getImgPaletteMode() {
+    return document.querySelector('input[name="imgPaletteMode"]:checked')?.value || 'adaptive';
+}
+
+// ════════════════════════════════════════════════════
+//  IMAGE TAB — CORE CONVERSION (ported from single.py)
+// ════════════════════════════════════════════════════
+const IMG_MAKECODE_PALETTE = [
+    [255,255,255],[255,33,33],[255,147,196],[255,129,53],[255,246,9],
+    [36,156,163],[120,220,82],[0,38,101],[0,113,188],[49,30,107],
+    [112,50,160],[187,115,80],[100,65,23],[145,70,61],[0,0,0],
+];
+
+function imgNearestFixed(r, g, b) {
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < IMG_MAKECODE_PALETTE.length; i++) {
+        const [pr, pg, pb] = IMG_MAKECODE_PALETTE[i];
+        const d = (r-pr)**2 + (g-pg)**2 + (b-pb)**2;
+        if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+}
+
+// Adaptive palette via k-means (max numColors)
+function imgAdaptivePalette(pixels, w, h, numColors) {
+    // Collect non-transparent pixels
+    const samples = [];
+    for (let i = 0; i < w * h; i++) {
+        if (pixels[i*4+3] > 0) samples.push([pixels[i*4], pixels[i*4+1], pixels[i*4+2]]);
+    }
+    if (!samples.length) return Array(numColors).fill([0,0,0]);
+
+    // Initialise centroids by spread sampling
+    const centroids = [samples[Math.floor(Math.random()*samples.length)]];
+    while (centroids.length < numColors) {
+        const dists = samples.map(s => {
+            let minD = Infinity;
+            for (const c of centroids) {
+                const d = (s[0]-c[0])**2 + (s[1]-c[1])**2 + (s[2]-c[2])**2;
+                if (d < minD) minD = d;
+            }
+            return minD;
+        });
+        const total = dists.reduce((a,b)=>a+b,0);
+        let r = Math.random()*total;
+        for (let i = 0; i < dists.length; i++) {
+            r -= dists[i];
+            if (r <= 0) { centroids.push(samples[i]); break; }
+        }
+        if (centroids.length < numColors) centroids.push(samples[Math.floor(Math.random()*samples.length)]);
+    }
+
+    // k-means iterations
+    for (let iter = 0; iter < 15; iter++) {
+        const sums   = Array.from({length: numColors}, () => [0,0,0]);
+        const counts = new Array(numColors).fill(0);
+        for (const s of samples) {
+            let best = 0, bestD = Infinity;
+            for (let k = 0; k < centroids.length; k++) {
+                const c = centroids[k];
+                const d = (s[0]-c[0])**2 + (s[1]-c[1])**2 + (s[2]-c[2])**2;
+                if (d < bestD) { bestD = d; best = k; }
+            }
+            sums[best][0] += s[0]; sums[best][1] += s[1]; sums[best][2] += s[2];
+            counts[best]++;
+        }
+        for (let k = 0; k < numColors; k++) {
+            if (counts[k]) centroids[k] = [
+                Math.round(sums[k][0]/counts[k]),
+                Math.round(sums[k][1]/counts[k]),
+                Math.round(sums[k][2]/counts[k]),
+            ];
+        }
+    }
+    return centroids;
+}
+
+function imgToSpriteAdaptive(pixels, w, h, numColors) {
+    const palette = imgAdaptivePalette(pixels, w, h, numColors);
+    const rows = [];
+    for (let y = 0; y < h; y++) {
+        let row = '';
+        for (let x = 0; x < w; x++) {
+            const i = (y*w+x)*4;
+            if (pixels[i+3] === 0) { row += '0'; continue; }
+            const [r,g,b] = [pixels[i], pixels[i+1], pixels[i+2]];
+            let best = 0, bestD = Infinity;
+            for (let k = 0; k < palette.length; k++) {
+                const [pr,pg,pb] = palette[k];
+                const d = (r-pr)**2 + (g-pg)**2 + (b-pb)**2;
+                if (d < bestD) { bestD = d; best = k; }
+            }
+            row += (best+1).toString(16);
+        }
+        rows.push(row);
+    }
+    return ['img`\n' + rows.join('\n') + '\n`', palette];
+}
+
+function imgToSpriteFixed(pixels, w, h) {
+    const rows = [];
+    for (let y = 0; y < h; y++) {
+        let row = '';
+        for (let x = 0; x < w; x++) {
+            const i = (y*w+x)*4;
+            if (pixels[i+3] === 0) { row += '0'; continue; }
+            row += (imgNearestFixed(pixels[i], pixels[i+1], pixels[i+2])+1).toString(16);
+        }
+        rows.push(row);
+    }
+    // Compute used palette
+    const usedIdx = new Set();
+    for (let i = 0; i < w*h; i++) {
+        if (pixels[i*4+3] > 0)
+            usedIdx.add(imgNearestFixed(pixels[i*4], pixels[i*4+1], pixels[i*4+2]));
+    }
+    const palette = [...usedIdx].sort((a,b)=>a-b).map(i=>IMG_MAKECODE_PALETTE[i]);
+    return ['img`\n' + rows.join('\n') + '\n`', palette];
+}
+
+function buildImgOutput(spriteStr, palette, mode, includeSnippet) {
+    let out = '';
+    if (mode === 'adaptive' && palette && includeSnippet) {
+        out += '// Auto-generated by MakeCode Video Converter  (adaptive mode)\n';
+        out += '// Requires the \'Color fading\' MakeCode extension\n\n';
+        out += 'const _palette = [\n';
+        for (const [r,g,b] of palette) out += `    [${r}, ${g}, ${b}],\n`;
+        out += ']\n\n';
+        out += 'for (let i = 0; i < 15; i++) {\n';
+        out += '    let c = _palette[i]\n';
+        out += '    color.setColor(i + 1, color.rgb(c[0], c[1], c[2]))\n';
+        out += '}\n\n';
+    } else {
+        out += '// Auto-generated by MakeCode Video Converter  (fixed palette mode)\n\n';
+    }
+    out += `let converted_image = ${spriteStr}\n`;
+    out += '\nlet spr = sprites.create(converted_image)\n';
+    out += 'spr.setPosition(80, 60)\n';
+    return out;
+}
+
+// ════════════════════════════════════════════════════
+//  IMAGE TAB — CONVERT BUTTON
+// ════════════════════════════════════════════════════
+imgConvertBtn.addEventListener('click', async () => {
+    if (!imgBitmap) return;
+    imgConvertBtn.disabled = true;
+    imgConvertBtn.textContent = '⏳ Converting…';
+    imgOutputCode.textContent = '// Converting…';
+    imgCopyBtn.disabled = true;
+    imgDownloadBtn.disabled = true;
+
+    try {
+        // Render at target size
+        const [tw, th] = computeImgTargetDims(imgBitmap.width, imgBitmap.height);
+        const offscreen = new OffscreenCanvas(tw, th);
+        const octx = offscreen.getContext('2d');
+        octx.imageSmoothingEnabled = false;
+        octx.drawImage(imgBitmap, 0, 0, tw, th);
+        const id = octx.getImageData(0, 0, tw, th);
+        const pixels = id.data;
+
+        const mode = getImgPaletteMode();
+        const numColors = Math.max(1, Math.min(15, parseInt(document.getElementById('imgMaxColors').value)||15));
+        const includeSnippet = document.getElementById('imgIncludeSnippet').checked;
+
+        let spriteStr, palette;
+        if (mode === 'adaptive') {
+            [spriteStr, palette] = imgToSpriteAdaptive(pixels, tw, th, numColors);
+        } else {
+            [spriteStr, palette] = imgToSpriteFixed(pixels, tw, th);
+        }
+
+        // Draw swatch
+        imgSwatchStrip.innerHTML = '';
+        for (const [r,g,b] of palette) {
+            const cell = document.createElement('div');
+            cell.className = 'swatch-cell';
+            cell.style.background = `rgb(${r},${g},${b})`;
+            imgSwatchStrip.appendChild(cell);
+        }
+        imgSwatchNote.textContent = `// ${palette.length} colour(s) in palette  ·  ${tw}×${th}px`;
+
+        const tsOut = buildImgOutput(spriteStr, palette, mode, includeSnippet);
+        imgGeneratedOutput = tsOut;
+        imgOutputCode.textContent = tsOut;
+        imgOutputStats.textContent = `${tw}×${th}px · ${palette.length} colours · ${formatSize(new Blob([tsOut]).size)}`;
+        imgCopyBtn.disabled = false;
+        imgDownloadBtn.disabled = false;
+    } catch(err) {
+        imgOutputCode.textContent = '// [ERROR] ' + err.message;
+    }
+
+    imgConvertBtn.disabled = false;
+    imgConvertBtn.textContent = '▶ Convert Image';
+});
+
+imgCopyBtn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(imgGeneratedOutput); }
+    catch { alert('Could not copy to clipboard.'); }
+});
+
+imgDownloadBtn.addEventListener('click', () => {
+    const blob = new Blob([imgGeneratedOutput], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='image_output.ts'; a.click();
+    URL.revokeObjectURL(url);
+});
+
+// ════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════
+onModeChange();
+onPaletteModeChange();
+
+// Re-render at correct scale whenever viewer container size changes
+const viewerMainEl = document.getElementById('viewerMain');
+if (window.ResizeObserver) {
+    new ResizeObserver(() => {
+        if (viewerFrames.length && !isPlaying) renderViewer(true);
+    }).observe(viewerMainEl);
+}
+</script>
+</body>
+</html>

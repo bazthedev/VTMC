@@ -404,6 +404,7 @@ canvas#processingCanvas { display:none; }
     <div class="tab-bar">
       <button class="tab-btn active" id="tabBtnVideo" onclick="switchTab('video')">▶ Video</button>
       <button class="tab-btn" id="tabBtnImage" onclick="switchTab('image')">🖼 Image</button>
+      <button class="tab-btn" id="tabBtnCredits" onclick="switchTab('credits')">✦ Credits</button>
     </div>
 
     <!-- ══ VIDEO TAB ══ -->
@@ -553,6 +554,44 @@ canvas#processingCanvas { display:none; }
       </div>
 
     </div><!-- /tabImage -->
+
+    <!-- ══ CREDITS TAB ══ -->
+    <div class="tab-panel" id="tabCredits">
+
+      <div class="sh" style="margin-top:0;">About</div>
+      <div class="info-box active" style="line-height:1.9; font-size:10px;">
+        MakeCode Video Converter — a browser-based tool for converting videos and images into MakeCode Arcade TypeScript sprites.
+      </div>
+
+      <div class="sh">Credits</div>
+
+      <div class="extra" style="margin-bottom:10px;">
+        <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;">Original Image Conversion Logic</div>
+        <div style="font-size:11px;color:var(--purple-bright);font-weight:bold;margin-bottom:4px;">kristianpedersen</div>
+        <div style="font-size:10px;color:var(--text);margin-bottom:6px;">Image-to-sprite palette matching and conversion algorithm.</div>
+        <a href="https://kristianpedersen.github.io/Convert-Image-to-MakeCode-Arcade-Sprite/"
+           target="_blank"
+           style="font-size:9px;color:var(--green);text-decoration:none;border-bottom:1px solid var(--green-dim);word-break:break-all;">
+          kristianpedersen.github.io/Convert-Image-to-MakeCode-Arcade-Sprite/
+        </a>
+      </div>
+
+      <div class="extra" style="margin-bottom:10px;">
+        <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;">Original Web Video Converter</div>
+        <div style="font-size:11px;color:var(--purple-bright);font-weight:bold;margin-bottom:4px;">Woody <span style="color:var(--text-muted);font-weight:normal;">(monk070)</span></div>
+        <div style="font-size:10px;color:var(--text);margin-bottom:6px;">Original browser-based video-to-MakeCode converter with audio support.</div>
+        <a href="https://monk070.github.io/makecode-video-audio-converter/"
+           target="_blank"
+           style="font-size:9px;color:var(--green);text-decoration:none;border-bottom:1px solid var(--green-dim);word-break:break-all;">
+          monk070.github.io/makecode-video-audio-converter/
+        </a>
+      </div>
+
+      <div class="info-box" style="margin-top:6px;font-size:9px;line-height:1.8;">
+        <span style="color:var(--text-muted);">//</span> This tool builds on the work of the above contributors. Thank you for making your projects open and accessible.
+      </div>
+
+    </div><!-- /tabCredits -->
 
   </div><!-- /pane-left -->
 
@@ -1708,7 +1747,7 @@ async function runPipeline(){
         for(const f of frames){tsOut+='  [\n';for(const[r,g,b]of(f.palette||[])){tsOut+=`    [${r},${g},${b}],\n`;}tsOut+='  ],\n';}
         tsOut+=']\n\n';
         if (audioHexBuffers) tsOut += buildAudioTs(audioHexBuffers, intMs);
-        tsOut+=`let lastPalette = -1\nfunction applyPalette(frame: number) {\n    if (frame == lastPalette) return\n    lastPalette = frame\n    for (let i = 0; i < 15; i++) {\n        let c = palettes[frame][i]\n        color.setColor(i + 1, color.rgb(c[0], c[1], c[2]))\n    }\n}\nlet video = sprites.create(frames[0])\nvideo.setPosition(80, 60)\nlet frame = 0\napplyPalette(0)\npause(3000)\ngame.onUpdateInterval(${intMs}, function () {\n    frame = (frame + 1) % frames.length\n    applyPalette(frame)\n    video.setImage(frames[frame])\n})\n`;
+        tsOut+=`let lastPalette = -1\nfunction applyPalette(frame: number) {\n    if (frame == lastPalette) return\n    lastPalette = frame\n    for (let i = 0; i < 15; i++) {\n        let c = palettes[frame][i]\n        color.setColor(i + 1, color.rgb(c[0], c[1], c[2]))\n    }\n}\nlet video = sprites.create(frames[0])\nvideo.setPosition(80, 60)\nlet frame = 0\napplyPalette(0)\ngame.onUpdateInterval(${intMs}, function () {\n    frame = (frame + 1) % frames.length\n    applyPalette(frame)\n    video.setImage(frames[frame])\n})\n`;
     } else {
         tsOut='const frames: Image[] = [\n'+frames.map(f=>f.sprite).join(',\n')+'\n]\n\n';
         if (audioHexBuffers) tsOut += buildAudioTs(audioHexBuffers, intMs);
@@ -1749,8 +1788,9 @@ downloadBtn.addEventListener('click',()=>{
 function switchTab(name) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('tab' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
-    document.getElementById('tabBtn' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+    const cap = name.charAt(0).toUpperCase() + name.slice(1);
+    document.getElementById('tab' + cap).classList.add('active');
+    document.getElementById('tabBtn' + cap).classList.add('active');
 }
 
 // ════════════════════════════════════════════════════
@@ -1980,18 +2020,18 @@ function buildImgOutput(spriteStr, palette, mode, includeSnippet) {
     if (mode === 'adaptive' && palette && includeSnippet) {
         out += '// Auto-generated by MakeCode Video Converter  (adaptive mode)\n';
         out += '// Requires the \'Color fading\' MakeCode extension\n\n';
-        out += 'const _palette = [\n';
+        out += 'const palette = [\n';
         for (const [r,g,b] of palette) out += `    [${r}, ${g}, ${b}],\n`;
         out += ']\n\n';
         out += 'for (let i = 0; i < 15; i++) {\n';
-        out += '    let c = _palette[i]\n';
+        out += '    let c = palette[i]\n';
         out += '    color.setColor(i + 1, color.rgb(c[0], c[1], c[2]))\n';
         out += '}\n\n';
     } else {
         out += '// Auto-generated by MakeCode Video Converter  (fixed palette mode)\n\n';
     }
-    out += `let converted_image = ${spriteStr}\n`;
-    out += '\nlet spr = sprites.create(converted_image)\n';
+    out += `const img = ${spriteStr}\n`;
+    out += '\nlet spr = sprites.create(img)\n';
     out += 'spr.setPosition(80, 60)\n';
     return out;
 }
